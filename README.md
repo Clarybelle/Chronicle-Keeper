@@ -692,22 +692,22 @@ Suggested public credit:
 > **11. QUICK START CHECKLIST**
 
 
-[ ] Paste the neutral V1.4.8 engine into Library.
-[ ] Paste the Context modifier into Context.
-[ ] Paste the Input modifier into Input.
-[ ] Paste the Output modifier into Output.
-[ ] Edit only CE_SETUP above ENGINE START.
-[ ] Match the player placeholder question exactly.
-[ ] Add only named NPCs to present and nearby.
-[ ] Add important creator NPCs, threads and protected truths.
-[ ] Add unusual player-card titles to ignoreCardTitles.
-[ ] Start a test adventure.
-[ ] Run [where], [threads], [lore], [state] and [help].
-[ ] Test one NPC arrival and completed departure.
-[ ] Test one relationship development.
-[ ] Test one automatic or manually tracked thread.
-[ ] Press Continue after a command and confirm normal story resumes.
-[ ] Confirm no private CE operation appears in visible output.
+- Paste the neutral V1.4.8 engine into Library.
+- Paste the Context modifier into Context.
+- Paste the Input modifier into Input.
+- Paste the Output modifier into Output.
+- Edit only CE_SETUP above ENGINE START.
+-  Match the player placeholder question exactly.
+- Add only named NPCs to present and nearby.
+- Add important creator NPCs, threads and protected truths.
+- Add unusual player-card titles to ignoreCardTitles.
+- Start a test adventure.
+- Run [where], [threads], [lore], [state] and [help].
+- Test one NPC arrival and completed departure.
+- Test one relationship development.
+- Test one automatic or manually tracked thread.
+- Press Continue after a command and confirm normal story resumes.
+- Confirm no private CE operation appears in visible output.
 
 ![Chronicle Keeper](assets/chronicle-keeper-footer.png)
 
