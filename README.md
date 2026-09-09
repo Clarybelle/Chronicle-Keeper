@@ -107,7 +107,7 @@ Only edit the CE_SETUP block above ENGINE START.
 > **3.1 GENERAL SETTINGS**
 
 
-continuityMode: "silent"
+continuityMode: "silent" <br>
 world: "living"
 
 These fields are retained for compatibility and future expansion. In V1.4.8,
