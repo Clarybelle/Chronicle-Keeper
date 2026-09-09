@@ -709,9 +709,7 @@ Suggested public credit:
 [ ] Press Continue after a command and confirm normal story resumes.
 [ ] Confirm no private CE operation appears in visible output.
 
-=========================================
-END OF README — CHRONICLE KEEPER V1.4.8
-=========================================
+![Chronicle Keeper](assets/chronicle-keeper-footer.png)
 
-
+[def]: assets/chronicle-keeper-banner.png
 [def]: assets/chronicle-keeper-footer.png
