@@ -1,7 +1,7 @@
 ![Chronicle Keeper](assets/Chronicle-keeper-banner.png)
 
 
-CHRONICLE KEEPER V1.4.8 <br>
+📜 CHRONICLE KEEPER V1.4.8 📜 <br>
 AI DUNGEON CONTINUITY, LORE, MEMORY AND RELATIONSHIP ENGINE
 =
 Chronicle Keeper is a reusable scripting system for AI Dungeon scenarios.
