@@ -1,4 +1,4 @@
-![Chronicle Keeper](assets/chronicle-keeper-banner.png)
+![Chronicle Keeper](assets/Chronicle-keeper-banner.png)
 
 =========================================================================================
 CHRONICLE KEEPER V1.4.8
@@ -709,7 +709,4 @@ Suggested public credit:
 - Press Continue after a command and confirm normal story resumes.
 - Confirm no private CE operation appears in visible output.
 
-![Chronicle Keeper](assets/chronicle-keeper-footer.png)
-
-[def]: assets/chronicle-keeper-banner.png
-[def]: assets/chronicle-keeper-footer.png
+![Chronicle Keeper Footer](assets/Chronicle-keeper-footer.png)
