@@ -1,8 +1,9 @@
-======================================================================
+![Chronicle Keeper](assets/chronicle-keeper-banner.png)
+
+=========================================================================================
 CHRONICLE KEEPER V1.4.8
 AI DUNGEON CONTINUITY, LORE, MEMORY AND RELATIONSHIP ENGINE
-======================================================================
-
+=======================================================================================
 Chronicle Keeper is a reusable scripting system for AI Dungeon scenarios.
 It maintains structured continuity behind the story while leaving the visible
 output as normal narrative.
@@ -22,9 +23,12 @@ Chronicle Keeper does not write a predetermined story. It records and returns
 relevant continuity so the AI can continue the player's story more reliably.
 
 
-======================================================================
-1. PACKAGE CONTENTS AND INSTALLATION
-======================================================================
+
+
+====================================================================================
+
+> **1. PACKAGE CONTENTS AND INSTALLATION**
+
 
 Chronicle Keeper uses four AI Dungeon script sections:
 
@@ -61,9 +65,10 @@ IMPORTANT:
   modifying the engine.
 
 
-======================================================================
-2. WHAT EACH SCRIPT SECTION DOES
-======================================================================
+====================================================================================
+
+> **2. WHAT EACH SECTION DOES**
+
 
 LIBRARY SCRIPT
 
@@ -92,15 +97,15 @@ It also removes leaked instruction fragments and performs conservative scene
 departure reconciliation when a named NPC explicitly leaves the venue.
 
 
-======================================================================
-3. CREATOR SETUP GUIDE
-======================================================================
+==================================================================================== 
+> **3. CREATOR SETUP GUIDE**
+
 
 Only edit the CE_SETUP block above ENGINE START.
 
----------------------------------------------------------------------
-3.1 GENERAL SETTINGS
----------------------------------------------------------------------
+
+> **3.1 GENERAL SETTINGS**
+
 
 continuityMode: "silent"
 world: "living"
@@ -126,9 +131,9 @@ injected context. This is a character budget, not a token count. Lowering it
 saves context space but may include fewer NPC and thread details. Increase it
 only when the selected AI model has sufficient context capacity.
 
----------------------------------------------------------------------
-3.2 MEMORY SETTINGS
----------------------------------------------------------------------
+
+> **3.2 MEMORY SETTINGS**
+
 
 memory.enabled
 Turns automatic NPC memory consolidation on or off.
@@ -152,9 +157,9 @@ Minimum delay between automatic summaries for the same NPC. Allowed range:
 Only verified, durable developments should become notes. Ordinary positioning,
 small talk and routine presence are deliberately excluded.
 
----------------------------------------------------------------------
-3.3 THREAD TRACKING SETTINGS
----------------------------------------------------------------------
+
+> **3.3 THREAD TRACKING SETTINGS**
+
 
 threadTracking.confirmationTurns
 Number of distinct turns on which a genuinely new emergent thread must be
@@ -182,9 +187,9 @@ mysteries, threats, investigations, contracts and unresolved plot goals.
 Conversation, flirtation, rivalry tension, moods and one-scene interactions
 belong in NPC developments rather than becoming separate plot threads.
 
----------------------------------------------------------------------
-3.4 LORE AND STORY CARD SETTINGS
----------------------------------------------------------------------
+
+> **3.4 LORE AND STORY CARD SETTINGS**
+
 
 lore.enabled
 Enables Chronicle Keeper Story Card integration.
@@ -226,9 +231,9 @@ Creator-written card content and safe player notes are preserved. The AI
 Dungeon Story Card entry limit is 1000 characters, so very full cards may use
 a compact managed profile.
 
----------------------------------------------------------------------
-3.5 PLAYER NAME AND PLACEHOLDERS
----------------------------------------------------------------------
+
+> **3.5 PLAYER NAME AND PLACEHOLDERS**
+
 
 Copy the exact player-name placeholder used by the scenario:
 
@@ -251,9 +256,9 @@ NPC rosters. fallbackName is used only if the placeholder cannot be resolved.
 Do not add "Players", "Player", "NPCs" or another faction/group label to the
 scene roster. The roster is for individually named non-player characters.
 
----------------------------------------------------------------------
-3.6 STARTING SCENE
----------------------------------------------------------------------
+
+> **3.6 STARTING SCENE**
+
 
 scene: {
   location: "",
@@ -288,9 +293,9 @@ district, the engine removes them from both lists even if the model mistakenly
 keeps them in its private roster. Attempted, interrupted or negated departures
 do not remove the NPC.
 
----------------------------------------------------------------------
-3.7 CREATOR NPCS
----------------------------------------------------------------------
+
+> **3.7 CREATOR NPCS**
+
 
 Copy one NPC object for each important starting character:
 
@@ -343,9 +348,9 @@ namePlaceholder may be written as either the question itself or the complete
 ${...} placeholder. The resolved name is applied throughout the NPC's setup,
 including description, knows and goals where the same placeholder appears.
 
----------------------------------------------------------------------
-3.8 RELATIONSHIP OPTIONS
----------------------------------------------------------------------
+
+> **3.8 RELATIONSHIP OPTIONS**
+
 
 Available presets:
 
@@ -380,9 +385,9 @@ relationshipOverride: {
 Tracked axes are familiarity, trust, affection, respect, attraction and
 resentment. Values are clamped between 0 and 100.
 
----------------------------------------------------------------------
-3.9 CREATOR THREADS
----------------------------------------------------------------------
+
+> **3.9 CREATOR THREADS**
+
 
 {
   name: "Thread Name",
@@ -417,9 +422,9 @@ rewriting this creator-defined foundation.
 playerKnows
 Facts about the thread already known by the player at the beginning.
 
----------------------------------------------------------------------
-3.10 PROTECTED TRUTHS
----------------------------------------------------------------------
+
+> **3.10 PROTECTED TRUTHS**
+
 
 truths: [
   "A protected fact about the world",
@@ -431,9 +436,9 @@ player knowledge. The engine may later mark a truth as revealed when the story
 actually provides evidence.
 
 
-======================================================================
-4. PLAYER COMMANDS
-======================================================================
+====================================================================================
+> **4. PLAYER COMMANDS**
+
 
 Use one command by itself. After Chronicle Keeper displays the result, press
 Continue to resume the story. V1.4.8 prevents the command turn and its panel
@@ -499,9 +504,9 @@ and displays the command list. The command card uses the Other card type and
 is excluded from NPC adoption.
 
 
-======================================================================
-5. AUTOMATIC BEHAVIOUR AND EXPECTED DELAYS
-======================================================================
+====================================================================================
+> **5. AUTOMATIC BEHAVIOUR AND EXPECTED DELAYS**
+
 
 Chronicle Keeper depends on the selected AI model to emit private structured
 updates. It then validates, limits and stores those updates. Not every change
@@ -524,9 +529,9 @@ Typical behaviour:
   consolidated summary.
 
 
-======================================================================
-6. STORY CARD SAFETY
-======================================================================
+====================================================================================
+> **6. STORY CARD SAFETY**
+
 
 - Only Character-type cards are eligible for NPC adoption.
 - Existing matching Character cards are reused when enabled.
@@ -540,9 +545,9 @@ Typical behaviour:
 - Character-card entries are capped at AI Dungeon's 1000-character limit.
 
 
-======================================================================
-7. TROUBLESHOOTING
-======================================================================
+====================================================================================
+> **7. TROUBLESHOOTING**
+
 
 PLAYER SHOWS AS "UNKNOWN" OR "PLAYER"
 
@@ -610,9 +615,9 @@ A STORY CARD DOES NOT UPDATE
   full managed section.
 
 
-======================================================================
-8. UPGRADING
-======================================================================
+====================================================================================
+> **8. UPGRADING**
+
 
 To upgrade an existing scenario or adventure:
 
@@ -630,9 +635,9 @@ Creator setup changes do not necessarily erase story developments already
 recorded in the adventure state.
 
 
-======================================================================
-9. PRIVACY AND PUBLIC DISTRIBUTION
-======================================================================
+====================================================================================
+> **9. PRIVACY AND PUBLIC DISTRIBUTION**
+
 
 Chronicle Keeper V1.4.8 makes no external network requests. Its continuity
 state is stored in the AI Dungeon adventure state and, when enabled, reflected
@@ -666,9 +671,9 @@ Suggested public credit:
 
 "Based on Chronicle Keeper by Clarybelle. Modified by [your name or username]."
 
-======================================================================
-10. V1.4.8 RELEASE NOTES
-======================================================================
+====================================================================================
+> **10. V1.4.8 RELEASE NOTES**
+
 
 - Added conservative explicit NPC departure reconciliation.
 - A named NPC clearly leaving the venue is removed from both present and
@@ -683,9 +688,9 @@ Suggested public credit:
   long-term memory, Story Cards, scene movement and leak scrubbing.
 
 
-======================================================================
-11. QUICK START CHECKLIST
-======================================================================
+====================================================================================
+> **11. QUICK START CHECKLIST**
+
 
 [ ] Paste the neutral V1.4.8 engine into Library.
 [ ] Paste the Context modifier into Context.
@@ -704,6 +709,9 @@ Suggested public credit:
 [ ] Press Continue after a command and confirm normal story resumes.
 [ ] Confirm no private CE operation appears in visible output.
 
-======================================================================
+=========================================
 END OF README — CHRONICLE KEEPER V1.4.8
-======================================================================
+=========================================
+
+
+[def]: assets/chronicle-keeper-banner.png
