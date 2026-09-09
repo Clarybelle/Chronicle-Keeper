@@ -714,4 +714,4 @@ END OF README — CHRONICLE KEEPER V1.4.8
 =========================================
 
 
-[def]: assets/chronicle-keeper-banner.png
+[def]: assets/chronicle-keeper-footer.png
