@@ -2,8 +2,6 @@
 
 All notable changes to Chronicle Keeper are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic-style version numbering during development.
-
 ## [1.4.8] - 2026-09-04
 
 ### Added
