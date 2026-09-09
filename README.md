@@ -4,7 +4,7 @@
 📜 CHRONICLE KEEPER V1.4.8 📜 <br>
 AI DUNGEON CONTINUITY, LORE, MEMORY AND RELATIONSHIP ENGINE
 =
-Chronicle Keeper is a reusable scripting system for AI Dungeon scenarios.
+Chronicle Keeper is a free, reusable, open-source JavaScript continuity and memory system for AI Dungeon creators.
 It maintains structured continuity behind the story while leaving the visible
 output as normal narrative.
 
