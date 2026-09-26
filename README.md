@@ -57,6 +57,7 @@ script contains the versioned engine and should be replaced when upgrading.
 
 IMPORTANT:
 
+- Delete **all** default text in each section and **only** keep Chronicle Keeper scripting. 
 - Keep only one Chronicle Keeper engine in the Library section.
 - Do not paste the full engine into Context, Input or Output.
 - Do not combine two scenario-specific Chronicle Keeper Library scripts.
