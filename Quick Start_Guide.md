@@ -6,6 +6,10 @@ This guide explains the absolute basics you need to know to start using the Chro
 
 **You do *not* have to read this guide**, as the Library script does briefly explain content and give example blocks for plug and play functionality, however this guide provides slightly more detail and fresh example blocks if you accidentally delete or completely annihilate your Quick Starter Section blocks!  
 
+*Important: When using placeholders for player or NPC customisation, copy the exact "${...}" question from your scenario setup. Use that same placeholder wherever its answer should appear, including a Story Card if needed.<br>
+Keep text fields in quotation marks. For example: description: "${Brief character description}. ${Personality traits?}". <br>
+The wording inside each placeholder must exactly match the question the player is asked.*
+
 **Starting Scene** <br>
 
 This is the starter scene of the scenario, it is the very **first** lcoation that the player is dropped into, who they're with, and what time/ day it is in the scenario. <br>
@@ -14,7 +18,7 @@ This is the starter scene of the scenario, it is the very **first** lcoation tha
   **area:** Specific building, room or immediate area.<br>
   **day:** Number of days into the story Example: 1.<br>
   **time:** Example: "Morning" or "Evening".<br>
-  **present:** Full names of NPCs directly in the current scene.<br>
+  **present:** Full names of NPCs directly in the current scene. This can include the placeholder of any custom NPC's you let your player create on start up. ie: ${Ally's full name?} <br>
   **nearby:** Full names of NPCs nearby but not directly present.<br>
 
   **Example Starting Scene**
@@ -24,8 +28,8 @@ This is the starter scene of the scenario, it is the very **first** lcoation tha
       area: "Player's House",
       day: "1",
       time: "MIDDAY",
-      present: ["ALLYRA WINDWALKER, KING THANDER" ],
-      nearby: ["BRUTUS, QUEEN LARRISA"] 
+      present: ["ALLYRA WINDWALKER", "KING THANDER", "${Ally's full name?}" ],
+      nearby: ["BRUTUS", "QUEEN LARRISA"] 
     }
 
    **NPC Blocks**
@@ -35,8 +39,8 @@ This is the starter scene of the scenario, it is the very **first** lcoation tha
    If you forget to add NPC's here, the engine will still track them if they are mentioned in the story or have a story card marked as 'Character' type, but they will be treated as minor NPCs and may be forgotten if not mentioned again.
     
   **name:** Full Character Name or identifying name/ character type if you're using a placeholder name. ie: Player, Villain, or Mentor for example. <br>
-  **namePlaceholder:** Use this if there is a placeholder in the scenario for this character's name. ie: ${What your name?} <br>
-  **fallbackName:** Optional name the AI will default to. <br>
+  **namePlaceholder:** Use this if there is a placeholder in the scenario for this character's name. ie: ${Ally's full name?}. you can leave it blank or delete the line if you're not using a placeholder for his character<br>
+  **fallbackName:** Optional name the AI will default to. Helpful with placeholder tracking but not required and can be deleted.  <br>
   **description:** Player description here for personality, appearance, history, traits, etc. <br>
   **status:** Are they an active or inactive NPC? They could be important to the story, but not actively tracked. <br>
   **importance:** Are they a major or minor NPC? Major NPCs are tracked and remembered, minor NPCs are not. <br>
