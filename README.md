@@ -23,6 +23,7 @@ Chronicle Keeper does not write a predetermined story. It records and returns
 relevant continuity so the AI can continue the player's story more reliably.
 
 
+**Please refer to the Quick Start Guide for Plug and Plug exerperience with less detail**
 
 
 ====================================================================================
