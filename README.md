@@ -51,15 +51,12 @@ Chronicle Keeper uses four AI Dungeon script sections:
    It reads the private continuity operation, updates the saved state, removes
    private metadata and returns the visible story.
 
-The V1.4.4 Context, Input and Output modifiers remain compatible with V1.4.8.
-Their small wrapper code has not required functional changes. The Library
-script contains the versioned engine and should be replaced when upgrading.
 
-IMPORTANT:
+**IMPORTANT:**
 
 - Delete **all** default text in each section and **only** keep Chronicle Keeper scripting. 
 - Keep only one Chronicle Keeper engine in the Library section.
-- Do not paste the full engine into Context, Input or Output.
+- Do not paste the full library script into Context, Input or Output.
 - Do not combine two scenario-specific Chronicle Keeper Library scripts.
 - Replace the old Library script when upgrading; do not paste the new version
   beneath it.
