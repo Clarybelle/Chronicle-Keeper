@@ -1,11 +1,13 @@
 /* ==============================================================
    CHRONICLE KEEPER V1.4.8 — NEUTRAL CREATOR TEMPLATE
 
+   QUICK START is below this initial section. 
    Edit this SETUP block. Copy/paste NPC and thread blocks freely.
    Everything except an NPC/thread name is optional.
    Do not edit below ENGINE START unless you enjoy preventable pain.
    ============================================================== */
 
+    // Feel free to IGNORE this section for QUICK PLAY.
 var CE_SETUP = {
   settings: {
     continuityMode: "silent",       // silent | guided | manual
@@ -46,81 +48,126 @@ var CE_SETUP = {
     }
   },
 
+/* ==================================
+  QUICK PLAY STARTER SECTION
+===================================== */
+
+  // THIS SETS YOUR PLAYERS NAME SO THE ENGINE CAN RECOGNISE IT. It is optional but recommended.
   // Copy the exact player-name placeholder used by the Scenario.
-  // Any wording is supported as long as it matches the text inside ${...}.
+  // Any wording is supported as long as it matches the text inside the placeholder. ie: ${EXAMPLE TEXT}.
   player: {
     name: "${What is your name?}",
     fallbackName: "Player"
   },
 
+  // THIS IS THE STARTING SCENE OF YOUR SCENARIO. I HAVE FILLED OUT AN EXAMPLE. 
+  // Please delete the words in my example and set your own. 
   scene: {
-    location: "", // Broad location, region, city or settlement.
-    area: "",     // Specific building, room or immediate area.
-    day: "",      // Example: "1".
-    time: "",     // Example: "Morning" or "Evening".
-    present: [],  // Full names of NPCs directly in the current scene.
-    nearby: []    // Full names of NPCs nearby but not directly present.
+    location: "EXAMPLE TOWN OR KINGDOM NAME - ASTERYC", // Broad location, region, city or settlement.
+    area: "EXAMPLE AREA - Player's House",     // Specific building, room or immediate area.
+    day: "NUMBER OF DAYS INTO THE STORY - USUALLY JUST 1",      // Example: "1".
+    time: "EXAMPLE TIME OF DAY - MIDDAY",     // Example: "Morning" or "Evening".
+    present: ["EXAMPLE NAMES, ALLYRA WINDWALKER, KING THANDER" ],  // Full names of NPCs directly in the current scene.
+    nearby: ["EXAMPLE NERABY NPC, BRUTUS, QUEEN LARRISA"]    // Full names of NPCs nearby but not directly present.
   },
 
-  npcs: [
-    /* EXAMPLE NPC — copy this block inside the array, remove the comment
-       markers, and separate multiple NPC blocks with commas.
+    // EXAMPLE NPC BLOCKS — I've provided two blocks that you can use, add, or delete. Copy these blocks inside the array, remove the comment markers, and separate multiple NPC blocks with commas.
+    // If you forget to add NPC's here, the engine will still track them if they are mentioned in the story, but they will be treated as minor NPCs and may be forgotten if not mentioned again.
+    npcs: [
+
     {
-      name: "Full Character Name",
-      // Optional renameable NPC:
-      // namePlaceholder: "What is this character's name?",
-      // fallbackName: "Default Character Name",
-      description: "Concise factual character description.",
+      name: "EXAMPLE Full Character Name",
+      namePlaceholder: "Use this is there is a placeholder in the scenario for this character's name.",
+      fallbackName: "Optional name to defaul to",
+      description: "Player description here for personality, appearance, history, traits, etc.",
+      status: "Are they an active or inactive NPC? They could be important to the story, but not actively tracked.",
+      importance: "Are they a major or minor NPC? Major NPCs are tracked and remembered, minor NPCs are not.",
+      relationship: "What is their relationsdhip to the player? Presets are below",
+      relationshipTone: "This is optional. It can be left blank or deleted. Presets are below.",
+      relationshipOverride: { trust: 80, attraction: 72 }, // This is optional and can be deleted or altered to suit your NPC relationship to the player. It overrides the preset relationship values if you want to customise them. The indent does not matter, but the commas and brackets do.
+      knows: ["These are secrets that the NPC knows and the player does not.", "Use comma's and quotation marks to separate multiple secrets."],
+      goals: ["These are goals that the NPC is pursuing", "Use comma's and quotation marks to separate multiple goals."]
+    },
+
+    // DELETE THIS LINE AND PASTE THE BLOCK ABOVE AS ADDITIONAL NPC BLOCKS AS NEEDED (Include from first { to last }, as it has the Comma). You can add as many NPCs as you like. Feel free to edit my example below too.
+
+    {
+      name: "Allyra Windwalker",
+      namePlaceholder: "${Ally's full name?}",
+      fallbackName: "Ally",
+      description: "Allyra is a skilled archer and member of the Windwalker clan. She is known for her keen eyesight and swift reflexes, making her a formidable opponent in battle. She has a strong sense of justice and is fiercely loyal to her friends. Her apprearance is marked by her long, flowing hair and the distinctive green cloak of her clan.",
       status: "active",
       importance: "major",
-      relationship: "acquaintance",
-      knows: [],
-      goals: []
+      relationship: "close_friend",
+      relationshipTone: "strained",
+      knows: ["Allyra knows a hidden passage through the forest that leads to a secret grove.", "She is secretly in love with the player character, but has not confessed her feelings, making the relationship strained sometimes."],
+      goals: ["Save the Kingdom from the encroaching darkness.", "Find the lost artifact of the Windwalker clan."]
     }
-    */
+
   ],
 
+  /* RELATIONSHIP OPTIONS EXPLAINED
+
+   Presets: stranger, acquaintance, friend, close_friend, rival, enemy, hated_enemy, family, mentor, friends_with_benefits, lover, romantic_partner
+
+   Optional tone: warm, close, neutral, strained, hostile
+   Optional overrides: This can be any stat and value. You can paste this line into the NPC block between relationshipTone and knows for higher customisation if my presets don't suit your scenario needs. The indent doesn't matter, but the commas and brackets do.
+     relationshipOverride: { affection: 35, resentment: 10 }, 
+
+     Relationship presets and how to read them:
+      familiarity: is how familiar the player is with this character. Even enemies can know the other quite well.
+      trust: is how much the player trusts this character. Even family members can be untrustworthy. 
+      affection: is how much the player likes this character. Even enemies can be liked, and friends can be disliked. 
+      respect: is how much the player respects this character. Even enemies can be respected, and friends can be disrespected. 
+      attraction: is how much the player is attracted to this character. Even enemies can be attractive. Enemies to lovers trope!  
+      resentment: is how much the player resents this character. Even mentors can be resented.
+
+     */
+
+  // EXAMPLE THREAD — copy this block inside the array, remove the comment markers, and separate multiple thread blocks with commas.
   threads: [
-    /* EXAMPLE THREAD — copy this block inside the array, remove the comment
-       markers, and separate multiple thread blocks with commas.
+
     {
-      name: "Thread Name",
-      aliases: ["Alternative Thread Name"], // Optional model-safe synonyms.
+      name: "Thread name here - This is like a quest name or a plot point.",
+      aliases: ["Alternative Thread Name. Use this in case your thread name is too long or needs a shorter version."], // Optional model-safe synonyms.
+      type: "Is it a main or side quest?",            // main | side
+      status: "Is it active, dormant, resolved, failed, or abandoned?",        // active | dormant | resolved | failed | abandoned
+      importance: 30,          // 0–100; This is always a number. It is optional but recommended. 0 is low importance, 100 is high importance.
+      situation: "More information about the thread. This is a protected starting premise or situation that the player may not know yet. It is optional but recommended.",
+      playerKnows: ["This is the infomation that the player character already knows about this quest.", "There can be multiple entries." ]
+    },
+
+    // DELETE THIS LINE AND PASTE THE BLOCK ABOVE AS ADDITIONAL THREAD BLOCKS AS NEEDED (Include from first { to last }, as it has the Comma). You can add as many THREADS as you like. Feel free to edit my example below too.
+
+    {
+      name: "King's Secret Mission",
+      aliases: ["Save the Kingdom"], // Optional model-safe synonyms.
       type: "main",            // main | side
       status: "active",        // active | dormant | resolved | failed | abandoned
-      importance: 90,          // 0–100; optional
-      situation: "Protected starting premise or situation.",
-      playerKnows: []
+      importance: 95,          // 0–100; optional
+      situation: "There are rumors of a dark force threatening the kingdom. The king has secretly tasked the player with uncovering and stopping this threat before it can cause harm.",
+      playerKnows: ["The king has given the player a secret mission to investigate the dark force.", "The player has been provided with a map leading to the suspected location of the threat."]
     }
-    */
+
   ],
 
-  // Protected creator canon. These facts are not automatically player-known.
+  // Protected creator canon. These facts or truths that are not automatically player-known but help keep the tone and progression of the story for th AI to remember.
   truths: [
-    /* EXAMPLE TRUTHS — add quoted facts separated by commas.
-    "A protected fact about the world",
-    "A protected secret not yet known by the player"
-    */
+    "EXAMPLE TRUTHS. Add quoted facts separated by commas.", 
+    "Allyra is enagaged to a member of the Windwalker clan, but she has feelings for the player character.",
+    "The Queen of the neighboring kingdom is secretly plotting against the player character's kingdom.",
+    "Upon investiation the player discovers that the dark force is being led by a rogue sorcerer who was once a trusted advisor to the king."
+
   ]
 };
 
-/* RELATIONSHIP OPTIONS
-   stranger, acquaintance, friend, close_friend, rival, enemy,
-   hated_enemy, family, mentor, friends_with_benefits, lover,
-   romantic_partner
-
-   Optional tone: warm, close, neutral, strained, hostile
-   Optional overrides:
-     relationshipTone: "strained",
-     relationshipOverride: { trust: 35, attraction: 70 }
-*/
-
 /* CHRONICLE KEEPER: LORE
-   - A titled Character card is adopted automatically; every other card type is ignored.
-   - A CE_SETUP NPC reuses an exact-title Character card or receives a new one.
-   - Character-card titles containing { or } are treated as player/setup placeholders.
+   - A Character Story Card that is not noted above is adopted automatically and tracked as an NPC; every other card type is ignored.
+   - A CE_SETUP NPC (Above NPC Blocks) that does not have a Story Card automatically adopts the exact-title Character Story Card or generates a new one.
+   - Character-card titles containing { or } are treated as player/setup placeholders (Optional noted placeholders are in the NPC set up blocks).
    - The resolved player name is never adopted or listed as a present/nearby NPC.
    - Creator card text and triggers are preserved. Lore only maintains its labelled profile block.
+   - Knows and goals are preserved in the profile block, but not automatically added to the story unless the NPC is present in the scene.
    - Optional player command: [alias:Full Character Name=Nickname]
    - Optional relationship command: [relationship:Full Character Name=friend]
    - Memory commands: [memory:Full Character Name] and [summarise:Full Character Name]
