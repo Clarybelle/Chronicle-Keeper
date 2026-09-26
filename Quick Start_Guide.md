@@ -20,12 +20,12 @@ This is the starter scene of the scenario, it is the very **first** lcoation tha
   **Example Starting Scene**
 
     scene: {
-      location: "EXAMPLE TOWN OR KINGDOM NAME - ASTERYC", // Broad location, region, city or settlement.
-      area: "EXAMPLE AREA - Player's House",     // Specific building, room or immediate area.
-      day: "NUMBER OF DAYS INTO THE STORY - USUALLY JUST 1",      // Example: "1".
-      time: "EXAMPLE TIME OF DAY - MIDDAY",     // Example: "Morning" or "Evening".
-      present: ["EXAMPLE NAMES, ALLYRA WINDWALKER, KING THANDER" ],  // Full names of NPCs directly in the current scene.
-      nearby: ["EXAMPLE NERABY NPC, BRUTUS, QUEEN LARRISA"]    // Full names of NPCs nearby but not directly present.
+      location: "ASTERYC",
+      area: "Player's House",
+      day: "1",
+      time: "MIDDAY",
+      present: ["ALLYRA WINDWALKER, KING THANDER" ],
+      nearby: ["BRUTUS, QUEEN LARRISA"] 
     }
 
    **NPC Blocks**
