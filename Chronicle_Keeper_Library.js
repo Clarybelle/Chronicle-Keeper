@@ -68,7 +68,7 @@ var CE_SETUP = {
     day: "NUMBER OF DAYS INTO THE STORY - USUALLY JUST 1",      // Example: "1".
     time: "EXAMPLE TIME OF DAY - MIDDAY",     // Example: "Morning" or "Evening".
     present: ["EXAMPLE NAMES", "ALLYRA WINDWALKER", "KING THANDER" ],  // Full names of NPCs directly in the current scene.
-    nearby: ["EXAMPLE NERABY NPC", "BRUTUS", *QUEEN LARRISA"]    // Full names of NPCs nearby but not directly present.
+    nearby: ["EXAMPLE NERABY NPC", "BRUTUS", "QUEEN LARRISA"]    // Full names of NPCs nearby but not directly present.
   },
 
     // EXAMPLE NPC BLOCKS — I've provided two blocks that you can use, add, or delete. Copy these blocks inside the array, remove the comment markers, and separate multiple NPC blocks with commas.
