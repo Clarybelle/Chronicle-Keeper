@@ -1,8 +1,8 @@
-==================================
-  QUICK PLAY STARTER SECTION
-====================================
 
-This guide explains the absolute basics you need to know to start using the Chronicle Kepper Engine. <br>
+  QUICK PLAY STARTER SECTION
+=
+
+This guide explains the absolute basics you need to know to start using the Chronicle Keeper Engine. <br>
 
 **You do *not* have to read this guide**, as the Library script does briefly explain content and give example blocks for plug and play functionality, however this guide provides slightly more detail and fresh example blocks if you accidentally delete or completely annihilate your Quick Starter Section blocks!  
 
