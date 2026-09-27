@@ -337,7 +337,17 @@ if (!PRESETS[key]) key = "acquaintance";
     if (Array.isArray(value)) return value.map(function (item) { return resolveSetupPlaceholders(state, item); });
     if (value && typeof value === "object") {
       out = {};
-      Object.keys(value).forEach(function (key) { out[key] = resolveSetupPlaceholders(state, value[key]); });
+        function resolveSetupPlaceholders(state, value) {
+    var out;
+    if (Array.isArray(value)) return value.map(function (item) { return resolveSetupPlaceholders(state, item); });
+    if (value && typeof value === "object") {
+      out = {};
+      Object.keys(value).forEach(function (key) {
+        // Keep the question intact so configuredName can look up the player's answer.
+        out[key] = key === "namePlaceholder" 
+        ? value[key] 
+        : resolveSetupPlaceholders(state, value[key]);
+    });
       return out;
     }
     return typeof value === "string" ? resolvePlaceholderText(state, value) : value;
