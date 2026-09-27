@@ -78,11 +78,11 @@ var CE_SETUP = {
     {
       name: "EXAMPLE Full Character Name",
       namePlaceholder: "Use this is there is a placeholder in the scenario for this character's name.",
-      fallbackName: "Optional name to defaul to",
+      fallbackName: "Optional name to default to",
       description: "Player description here for personality, appearance, history, traits, etc.",
       status: "Are they an active or inactive NPC? They could be important to the story, but not actively tracked.",
       importance: "Are they a major or minor NPC? Major NPCs are tracked and remembered, minor NPCs are not.",
-      relationship: "What is their relationsdhip to the player? Presets are below",
+      relationship: "What is their relationship to the player? Presets are below",
       relationshipTone: "This is optional. It can be left blank or deleted. Presets are below.",
       relationshipOverride: { trust: 80, attraction: 72 }, // This is optional and can be deleted or altered to suit your NPC relationship to the player. It overrides the preset relationship values if you want to customise them. The indent does not matter, but the commas and brackets do.
       knows: ["These are secrets that the NPC knows and the player does not.", "Use comma's and quotation marks to separate multiple secrets."],
