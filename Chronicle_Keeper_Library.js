@@ -332,22 +332,14 @@ if (!PRESETS[key]) key = "acquaintance";
       return answer || match;
     });
   }
-  function resolveSetupPlaceholders(state, value) {
-    var out;
-    if (Array.isArray(value)) return value.map(function (item) { return resolveSetupPlaceholders(state, item); });
-    if (value && typeof value === "object") {
-      out = {};
-        function resolveSetupPlaceholders(state, value) {
+    function resolveSetupPlaceholders(state, value) {
     var out;
     if (Array.isArray(value)) return value.map(function (item) { return resolveSetupPlaceholders(state, item); });
     if (value && typeof value === "object") {
       out = {};
       Object.keys(value).forEach(function (key) {
-        // Keep the question intact so configuredName can look up the player's answer.
-        out[key] = key === "namePlaceholder" 
-        ? value[key] 
-        : resolveSetupPlaceholders(state, value[key]);
-    });
+        out[key] = key === "namePlaceholder" ? value[key] : resolveSetupPlaceholders(state, value[key]);
+      });
       return out;
     }
     return typeof value === "string" ? resolvePlaceholderText(state, value) : value;
@@ -1816,4 +1808,4 @@ return lines.join("\n");
     consume: consume,
     panel: panel
   };
-}());
+}()); 
