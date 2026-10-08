@@ -1,5 +1,5 @@
 /* ==============================================================
-   CHRONICLE KEEPER V1.4.8 — NEUTRAL CREATOR TEMPLATE
+   CHRONICLE KEEPER V1.5.1 — NEUTRAL CREATOR TEMPLATE
 
    QUICK START is below this initial section. 
    Edit this SETUP block. Copy/paste NPC and thread blocks freely.
@@ -13,6 +13,7 @@ var CE_SETUP = {
     continuityMode: "silent",       // silent | guided | manual
     world: "living",                // living | static
     relationshipPacing: "natural",  // slow | natural | dramatic
+    relationshipEvolution: true,    // labels follow earned scores; false keeps labels manual
     contextBudget: 5500,
 
     // Long-term NPC memory. New developments remain as recent notes until
@@ -109,6 +110,7 @@ var CE_SETUP = {
   /* RELATIONSHIP OPTIONS EXPLAINED
 
    Presets: stranger, acquaintance, friend, close_friend, rival, enemy, hated_enemy, family, mentor, friends_with_benefits, lover, romantic_partner
+   Presets set the six starting scores. With relationshipEvolution true, earned score changes can move a label in either direction as gates are met. Family stays fixed.
 
    Optional tone: warm, close, neutral, strained, hostile
    Optional overrides: This can be any stat and value. You can paste this line into the NPC block between relationshipTone and knows for higher customisation if my presets don't suit your scenario needs. The indent doesn't matter, but the commas and brackets do.
@@ -170,25 +172,29 @@ var CE_SETUP = {
    - Knows and goals are preserved in the profile block, but not automatically added to the story unless the NPC is present in the scene.
    - Optional player command: [alias:Full Character Name=Nickname]
    - Optional relationship command: [relationship:Full Character Name=friend]
-   - Memory commands: [memory:Full Character Name] and [summarise:Full Character Name]
+   - Memory commands: [memory:Full Character Name], [summarise:Full Character Name],
+     [pin:Full Character Name=lasting event], [unpin:Full Character Name=event excerpt]
    - Inspection command: [lore]
 */
 
 /* PLAYER COMMANDS
    Help:    [help] [commands]
    Inspect: [where] [threads] [state] [lore]
-            [relationships:Full Character Name] [memory:Full Character Name]
+            [relationships:Full Character Name] [gate:Full Character Name]
+            [memory:Full Character Name]
    Manage:  [alias:Full Character Name=Nickname]
             [relationship:Full Character Name=preset]
             [keep:Character Name] [major:Character Name] [forget:Character Name]
             [track:Thread Name] [drop:Thread Name]
             [summarise:Full Character Name] ("summarize" also works)
+            [pin:Full Character Name=lasting event]
+            [unpin:Full Character Name=event excerpt]
 */
 
 /* ========================== ENGINE START ========================== */
 
 var CE = (function () {
-  var VERSION = "1.4.8";
+  var VERSION = "1.5.1";
   var CARD_ENTRY_LIMIT = 1000;
   var COMMAND_SENTINEL = "\u2063"; // Invisible separator: keeps command turns out of the visible story.
   var LORE_PROFILE_OPEN = "[CK LORE PROFILE]";
@@ -212,6 +218,9 @@ var CE = (function () {
     maxPendingNotes: 10,
     cooldownTurns: 3
   };
+  var MAX_ANCHORS = 6;
+  var MAX_AUTO_ANCHORS = 2;
+  var ANCHOR_MAX_CHARS = 180;
   var LORE_DEFAULTS = {
     enabled: true,
     reuseMatchingCards: true,
@@ -242,6 +251,21 @@ var CE = (function () {
     lover:                 { familiarity: 75, trust: 70, affection: 80, respect: 65, attraction: 85, resentment: 5 },
     romantic_partner:      { familiarity: 90, trust: 85, affection: 85, respect: 75, attraction: 85, resentment: 5 }
   };
+  // Entry gates. Positive scores are minimums; resentment and hostile-score
+  // limits are maximums. Exit gates have a five-point buffer, avoiding a label
+  // flip when a single +/-1 update crosses an exact boundary.
+  var RELATIONSHIP_GATES = {
+    acquaintance:          { min:{ familiarity:30, trust:30, affection:30, respect:50, attraction:5 }, max:{ resentment:0 } },
+    friend:                { min:{ familiarity:65, trust:65, affection:65, respect:60, attraction:5 }, max:{ resentment:15 } },
+    close_friend:          { min:{ familiarity:85, trust:80, affection:80, respect:70, attraction:10 }, max:{ resentment:10 } },
+    mentor:                { min:{ familiarity:70, trust:70, affection:55, respect:85 }, max:{ resentment:15 } },
+    rival:                 { min:{ resentment:40 }, max:{ trust:20, respect:20 } },
+    enemy:                 { min:{ resentment:65 }, max:{ trust:10, respect:20, affection:20 } },
+    hated_enemy:           { min:{ resentment:90 }, max:{ trust:5, respect:10, affection:10 } },
+    friends_with_benefits: { min:{ familiarity:75, trust:60, affection:60, respect:60, attraction:80 }, max:{ resentment:15 } },
+    lover:                 { min:{ familiarity:75, trust:70, affection:80, respect:65, attraction:85 }, max:{ resentment:10 } },
+    romantic_partner:      { min:{ familiarity:90, trust:85, affection:85, respect:75, attraction:85 }, max:{ resentment:10 } }
+  };
   var TONES = {
     warm:    { trust: 8, affection: 12, respect: 4, resentment: -5 },
     close:   { familiarity: 8, trust: 10, affection: 12, respect: 5, resentment: -5 },
@@ -263,7 +287,10 @@ var CE = (function () {
   function uniqueRoster(values) {
     var result = [], seen = {};
     (Array.isArray(values) ? values : []).forEach(function (value) {
-      var name = String(value || "").replace(/\s+/g, " ").trim(), key = normaliseName(name);
+      // A malformed model packet can append C metadata to P/N. Never keep
+      // private fields as a person's name, including when loading old state.
+      var name = String(value || "").split(/[~|\r\n]/)[0].replace(/\s+/g, " ").trim(), key = normaliseName(name);
+      if (name.length > 75 || /[:=<>{}\[\]]/.test(name) || /^(?:none|empty|-)$/i.test(name)) return;
       if (name && !seen[key]) { seen[key] = true; result.push(name); }
     });
     return result.slice(0, 12);
@@ -271,6 +298,23 @@ var CE = (function () {
   function normaliseSceneRoster(ce, preferNearby) {
     var present = uniqueRoster(ce.scene && ce.scene.present), nearby = uniqueRoster(ce.scene && ce.scene.nearby), chosen = {},
         player = normaliseName(ce.player && ce.player.name);
+    // A configured or explicitly established alias is the same actor in P/N.
+    // Keep ambiguous aliases untouched instead of guessing who they describe.
+    function canonical(name) {
+      var key = normaliseName(name), matches = Object.keys(ce.characters || {}).map(function (id) {
+        return ce.characters[id];
+      }).filter(function (c) {
+        return c && (normaliseName(c.name) === key || (c.aliases || []).some(function (alias) {
+          return normaliseName(alias) === key;
+        }));
+      });
+      return matches.length === 1 ? matches[0].name : name;
+    }
+    present = uniqueRoster(present.map(canonical));
+    nearby = uniqueRoster(nearby.map(canonical));
+    // Model packets sometimes list an unnamed crowd as a single character.
+    present = present.filter(function (name) { return !/^(?:players?|npcs?|people|crowd|townsfolk)$/i.test(name); });
+    nearby = nearby.filter(function (name) { return !/^(?:players?|npcs?|people|crowd|townsfolk)$/i.test(name); });
     if (player) {
       present = present.filter(function (name) { return normaliseName(name) !== player; });
       nearby = nearby.filter(function (name) { return normaliseName(name) !== player; });
@@ -312,6 +356,131 @@ if (!PRESETS[key]) key = "acquaintance";
     var key = String(value || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
     var aliases = { partner: "romantic_partner", romantic: "romantic_partner", closefriend: "close_friend", fwb: "friends_with_benefits" };
     return aliases[key] || key;
+  }
+  function meetsRelationshipGate(scores, key, holding) {
+    var gate = RELATIONSHIP_GATES[key], margin = holding ? 5 : 0;
+    if (!gate) return false;
+    return Object.keys(gate.min || {}).every(function (axis) {
+      return Number(scores[axis]) >= gate.min[axis] - margin;
+    }) && Object.keys(gate.max || {}).every(function (axis) {
+      return Number(scores[axis]) <= gate.max[axis] + margin;
+    });
+  }
+  function relationshipGateOptions(current) {
+    // Keep this order aligned with evolvedRelationshipPreset: a ready gate
+    // with higher transition priority wins a distance tie.
+    return {
+      stranger: [{ key:"rival" }, { key:"acquaintance" }],
+      acquaintance: [{ key:"rival" }, { key:"friend" }, { key:"stranger", exit:"acquaintance" }],
+      friend: [{ key:"rival" }, { key:"friends_with_benefits" }, { key:"close_friend" }, { key:"mentor" }, { key:"acquaintance", exit:"friend" }],
+      close_friend: [{ key:"rival" }, { key:"friends_with_benefits" }, { key:"friend", exit:"close_friend" }],
+      mentor: [{ key:"rival" }, { key:"friend", exit:"mentor" }],
+      friends_with_benefits: [{ key:"rival" }, { key:"lover" }, { key:"friend", exit:"friends_with_benefits" }],
+      lover: [{ key:"rival" }, { key:"romantic_partner" }, { key:"friends_with_benefits", exit:"lover" }],
+      romantic_partner: [{ key:"rival" }, { key:"lover", exit:"romantic_partner" }],
+      rival: [{ key:"enemy" }, { key:"acquaintance" }],
+      enemy: [{ key:"hated_enemy" }, { key:"rival", exit:"enemy" }],
+      hated_enemy: [{ key:"enemy", exit:"hated_enemy" }]
+    }[current] || [];
+  }
+  function relationshipGateGap(scores, option) {
+    var gate = RELATIONSHIP_GATES[option.exit || option.key], needs = [];
+    if (!gate) return { distance:Infinity, needs:[] };
+    Object.keys(gate.min || {}).forEach(function (axis) {
+      var target = gate.min[axis], value = clamp(scores[axis]);
+      if (option.exit) {
+        target -= 6; // fail the five-point hold buffer
+        needs.push({ distance:Math.max(0, value - target), text:axis + " down to " + target + " or less" });
+      } else if (value < target) needs.push({ distance:target - value, text:axis + " +" + (target - value) + " to " + target });
+    });
+    Object.keys(gate.max || {}).forEach(function (axis) {
+      var target = gate.max[axis], value = clamp(scores[axis]);
+      if (option.exit) {
+        target += 6;
+        needs.push({ distance:Math.max(0, target - value), text:axis + " up to " + target + " or more" });
+      } else if (value > target) needs.push({ distance:value - target, text:axis + " -" + (value - target) + " to " + target });
+    });
+    if (option.exit) {
+      needs.sort(function (a,b) { return a.distance - b.distance; });
+      return { distance:needs[0] ? needs[0].distance : Infinity, needs:needs.slice(0,1) };
+    }
+    return { distance:needs.reduce(function (total, item) { return total + item.distance; }, 0), needs:needs };
+  }
+  function relationshipGateReport(ce, character) {
+    var scores = character.relationship || {}, current = relationshipPresetKey(scores.preset || scores.summary),
+        options = relationshipGateOptions(current), recent = (scores.recentChanges || []).slice(-5),
+        earlier = {}, total = {}, axes = ["familiarity","trust","affection","respect","attraction","resentment"], best, beforeGap;
+    if (current === "family") return ["Family is fixed; there is no automatic next gate."];
+    if (!options.length) return ["No next gate for this status."];
+    options.forEach(function (option) {
+      var gap = relationshipGateGap(scores, option);
+      if (!best || gap.distance < best.gap.distance) best = { option:option, gap:gap };
+    });
+    axes.forEach(function (axis) {
+      total[axis] = recent.reduce(function (sum, item) { return sum + Number((item.delta || {})[axis] || 0); }, 0);
+      earlier[axis] = clamp(Number(scores[axis] || 0) - total[axis]);
+    });
+    beforeGap = relationshipGateGap(earlier, best.option);
+    var label = best.option.key.replace(/_/g, " "), movement = beforeGap.distance - best.gap.distance,
+        changed = axes.filter(function (axis) { return total[axis] !== 0; }).map(function (axis) {
+          return axis + " " + (total[axis] > 0 ? "+" : "") + total[axis];
+        });
+    return [
+      "Closest next gate: " + label + (best.option.exit ? " (losing " + best.option.exit.replace(/_/g, " ") + ")" : ""),
+      best.gap.distance === 0 ? "Gate condition met; status is checked after the next accepted score change (a higher-priority gate may win)." :
+        "Still needed: " + best.gap.needs.map(function (need) { return need.text; }).join("; ") + ".",
+      !recent.length ? "Direction: no recorded score changes yet." :
+        "Direction over last " + recent.length + " score-changing turn(s): " + (movement > 0 ? "toward" : movement < 0 ? "away" : "flat") +
+        " (gap " + beforeGap.distance + " → " + best.gap.distance + "; " + (changed.join(", ") || "no net score change") + ")."
+    ].concat(ce.settings && ce.settings.relationshipEvolution === false ? ["Automatic status changes are disabled in setup."] : []);
+  }
+  function evolvedRelationshipPreset(scores) {
+    var current = relationshipPresetKey(scores.preset || scores.summary || "acquaintance"),
+        qualifies = function (name) { return meetsRelationshipGate(scores, name, false); },
+        holds = function (name) { return meetsRelationshipGate(scores, name, true); };
+    if (current === "family") return current;
+    // A severe collapse can move a positive relationship into rivalry. The
+    // hostile branch then progresses one neighbouring label per story turn.
+    if (["rival","enemy","hated_enemy"].indexOf(current) < 0 && qualifies("rival")) return "rival";
+    if (current === "hated_enemy") return holds(current) ? current : "enemy";
+    if (current === "enemy") return qualifies("hated_enemy") ? "hated_enemy" : (holds(current) ? current : "rival");
+    if (current === "rival") return qualifies("enemy") ? "enemy" : (qualifies("acquaintance") ? "acquaintance" : current);
+    if (current === "stranger") return qualifies("acquaintance") ? "acquaintance" : current;
+    if (current === "acquaintance") return qualifies("friend") ? "friend" : (holds(current) ? current : "stranger");
+    if (current === "friend") {
+      if (qualifies("friends_with_benefits")) return "friends_with_benefits";
+      if (qualifies("close_friend")) return "close_friend";
+      if (qualifies("mentor")) return "mentor";
+      return holds(current) ? current : "acquaintance";
+    }
+    if (current === "close_friend") return qualifies("friends_with_benefits") ? "friends_with_benefits" : (holds(current) ? current : "friend");
+    if (current === "mentor") return holds(current) ? current : "friend";
+    if (current === "friends_with_benefits") return qualifies("lover") ? "lover" : (holds(current) ? current : "friend");
+    if (current === "lover") return qualifies("romantic_partner") ? "romantic_partner" : (holds(current) ? current : "friends_with_benefits");
+    if (current === "romantic_partner") return holds(current) ? current : "lover";
+    return current;
+  }
+  function evolveRelationshipsAfterStory(ce, before) {
+    var events = [], axes = ["familiarity","trust","affection","respect","attraction","resentment"];
+    if (!before) return events;
+    Object.keys(ce.characters || {}).forEach(function (id) {
+      var c = ce.characters[id], prior = (before.characters || {})[id], oldKey, newKey, delta = {};
+      if (!c || !prior || !c.relationship || !prior.relationship) return;
+      axes.forEach(function (axis) {
+        var change = Number(c.relationship[axis]) - Number(prior.relationship[axis]);
+        if (change) delta[axis] = change;
+      });
+      if (!Object.keys(delta).length) return;
+      c.relationship.recentChanges = (c.relationship.recentChanges || []).concat([{ turn:ce.turn, delta:delta }]).slice(-5);
+      if (ce.settings && ce.settings.relationshipEvolution === false) return;
+      oldKey = relationshipPresetKey(c.relationship.preset || c.relationship.summary);
+      newKey = evolvedRelationshipPreset(c.relationship);
+      if (newKey === oldKey || !PRESETS[newKey]) return;
+      c.relationship.preset = newKey;
+      c.relationship.summary = newKey.replace(/_/g, " ");
+      events.push(c.name + ": " + oldKey.replace(/_/g, " ") + " → " + c.relationship.summary);
+    });
+    return events;
   }
   function placeholder(state, question, fallback) {
     var list = state.placeholders || [], needle = String(question || "").trim(), i;
@@ -400,12 +569,20 @@ if (!PRESETS[key]) key = "acquaintance";
     return out;
   }
   function emptyMemory() {
-    return { summary: "", previous: "", pending: false, forced: false, queuedTurn: -1, lastSummaryTurn: -999, summaryCount: 0 };
+    return { summary: "", previous: "", anchors: [], pending: false, forced: false, queuedTurn: -1, lastSummaryTurn: -999, summaryCount: 0 };
+  }
+  function cleanAnchor(value) {
+    var text = String(value || "").replace(/[|~)\[\]]/g, " ").replace(/\s+/g, " ").trim();
+    if (text.length > ANCHOR_MAX_CHARS) text = text.slice(0, ANCHOR_MAX_CHARS).replace(/\s+\S*$/, "").trim();
+    return text;
   }
   function ensureMemory(ce, c) {
     var memory = c.memory && typeof c.memory === "object" ? c.memory : emptyMemory(), cfg = memorySettings(ce);
     memory.summary = String(memory.summary || "").replace(/\s+/g, " ").trim().slice(0, cfg.summaryMaxChars);
     memory.previous = String(memory.previous || "").replace(/\s+/g, " ").trim().slice(0, cfg.summaryMaxChars);
+    memory.anchors = (Array.isArray(memory.anchors) ? memory.anchors : []).map(function (item) {
+      return { text:cleanAnchor(item && typeof item === "object" ? item.text : item), source:item && item.source === "auto" ? "auto" : "player" };
+    }).filter(function (item) { return item.text.length >= 12; }).slice(0, MAX_ANCHORS);
     memory.pending = !!memory.pending;
     memory.forced = !!memory.forced;
     memory.queuedTurn = Number(memory.queuedTurn === undefined ? -1 : memory.queuedTurn);
@@ -417,6 +594,28 @@ if (!PRESETS[key]) key = "acquaintance";
       if (memory.queuedTurn < 0) memory.queuedTurn = Number(ce.turn || 0);
     }
     return memory;
+  }
+  function addMemoryAnchor(ce, c, value, source) {
+    var text = cleanAnchor(value), anchors = ensureMemory(ce, c).anchors, key = normaliseName(text), auto = source === "auto";
+    if (text.length < 12) return "too short (use a specific event of at least 12 characters)";
+    if (anchors.some(function (a) { return normaliseName(a.text) === key; })) return "already pinned";
+    if (auto && anchors.filter(function (a) { return a.source === "auto"; }).length >= MAX_AUTO_ANCHORS) return "automatic slots full";
+    if (anchors.length >= MAX_ANCHORS && !auto) {
+      var autoIndex = anchors.findIndex(function (a) { return a.source === "auto"; });
+      if (autoIndex >= 0) anchors.splice(autoIndex, 1);
+    }
+    if (anchors.length >= MAX_ANCHORS) return "all slots full; use [unpin:Name=event excerpt] first";
+    anchors.push({ text:text, source:auto ? "auto" : "player" });
+    return "added";
+  }
+  function removeMemoryAnchor(ce, c, excerpt) {
+    var anchors = ensureMemory(ce, c).anchors, key = normaliseName(excerpt), matches;
+    if (key.length < 8) return "use a distinctive excerpt of at least 8 characters";
+    matches = anchors.map(function (a, i) { return normaliseName(a.text).indexOf(key) >= 0 ? i : -1; }).filter(function (i) { return i >= 0; });
+    if (!matches.length) return "no matching pinned moment";
+    if (matches.length > 1) return "excerpt matches multiple moments; be more specific";
+    anchors.splice(matches[0], 1);
+    return "removed";
   }
   function cleanMemorySummary(value, maxChars) {
     var summary = String(value || "")
@@ -432,11 +631,12 @@ if (!PRESETS[key]) key = "acquaintance";
   function addCharacterNote(ce, c, value) {
     var cfg = memorySettings(ce), note = String(value || "").replace(/\s+/g, " ").trim().slice(0, 220), memory, seen;
     if (!note) return false;
+    memory = ensureMemory(ce, c);
+    if (normaliseName(memory.summary) === normaliseName(note)) return false;
     c.notes = Array.isArray(c.notes) ? c.notes : [];
     seen = c.notes.some(function (existing) { return normaliseName(existing) === normaliseName(note); });
     if (!seen) c.notes.push(note);
     c.notes = c.notes.slice(-cfg.maxPendingNotes);
-    memory = ensureMemory(ce, c);
     if (cfg.enabled && c.notes.length >= cfg.noteThreshold) {
       memory.pending = true;
       if (memory.queuedTurn < 0) memory.queuedTurn = Number(ce.turn || 0);
@@ -483,8 +683,13 @@ if (!PRESETS[key]) key = "acquaintance";
         pending = (c.notes || []).slice(-cfg.maxPendingNotes), perNote = Math.max(60, Math.floor(820 / Math.max(1, pending.length)) - 2),
         notes = pending.map(function (note) {
           return String(note || "").replace(/[|~)]/g, " ").replace(/\s+/g, " ").trim().slice(0, perNote);
-        }).filter(Boolean).join("; ");
-    return "MEMORY TASK for " + c.name + ": merge the prior long-term summary [" + previous.slice(0, 300) + "] with these verified recent developments [" + notes.slice(0, 850) + "] into one factual third-person summary of at most " + cfg.summaryMaxChars + " characters. Preserve durable promises, secrets, alliances, betrayals, injuries, role changes and major shared events; remove repetition and transient positioning or small talk. Do not invent, infer new facts or include numeric relationship scores. This is metadata-only: do not make the NPC appear, speak or affect the story unless the current scene already does so. Emit it inside the private operation as C=" + c.name + "~memory:summary text, even if no other C update is needed.";
+        }).filter(Boolean).join("; "),
+        recent = String(ce.lastNarrative || "").replace(/[|~)]/g, " ").replace(/\s+/g, " ").trim(),
+        evidence = pending.length < cfg.noteThreshold && recent &&
+          (normaliseName(recent).indexOf(normaliseName(c.name)) >= 0 ||
+           (ce.scene && (ce.scene.present || []).map(normaliseName).indexOf(normaliseName(c.name)) >= 0)) ?
+          " Recent story excerpt, for verified context only [" + recent.slice(-400) + "]." : "";
+    return "MEMORY TASK for " + c.name + ": merge the prior long-term summary [" + previous.slice(0, 300) + "] with these verified recent developments [" + notes.slice(0, 850) + "]" + evidence + " into one factual third-person summary of at most " + cfg.summaryMaxChars + " characters. Pinned moments are separately preserved: do not try to fit all of them into the rolling summary. Preserve other durable events; remove repetition and transient positioning or small talk. Summarize actual events, not just a list of character traits. Do not invent, infer new facts or include numeric relationship scores. This is metadata-only: do not make the NPC appear, speak or affect the story unless the current scene already does so. Emit it inside the private operation as C=" + c.name + "~memory:summary text, even if no other C update is needed.";
   }
   function emptyCardLink() {
     return { id: "", source: "", lastSyncTurn: -1, lastHash: "" };
@@ -521,16 +726,23 @@ if (!PRESETS[key]) key = "acquaintance";
       .replace(/^\s+|\s+$/g, "");
   }
   function composeCardDescription(ce, c, existing, marker) {
-    var manual = stripLegacyAutoCardsPrompt(stripManagedCardMemory(existing)),
-        memory = cleanMemorySummary(ensureMemory(ce, c).summary, memorySettings(ce).summaryMaxChars),
-        recent = (c.notes || []).slice(-2).map(function (note) {
+    var cfg = memorySettings(ce), manual = stripLegacyAutoCardsPrompt(stripManagedCardMemory(existing)),
+        record = ensureMemory(ce, c), memory = cleanMemorySummary(record.summary, cfg.summaryMaxChars),
+        recent = (c.notes || []).slice(-cfg.maxPendingNotes).map(function (note) {
           return String(note || "").replace(/\s+/g, " ").trim().slice(0, 180);
         }).filter(Boolean), lines = [marker];
-    if (memory || recent.length) {
+    if (memory || recent.length || record.anchors.length) {
       lines.push("");
       lines.push(CARD_MEMORY_OPEN);
-      if (memory) lines.push(memory);
-      if (recent.length) lines.push("Recent: " + recent.join("; "));
+      if (memory) lines.push("Rolling summary: " + memory);
+      if (record.anchors.length) {
+        lines.push("Pinned moments (preserved across summaries):");
+        record.anchors.forEach(function (anchor) { lines.push("• " + anchor.text); });
+      }
+      if (recent.length) {
+        lines.push("Recent developments:");
+        recent.forEach(function (note) { lines.push("• " + note); });
+      }
       lines.push(CARD_MEMORY_CLOSE);
     }
     if (manual) {
@@ -580,7 +792,10 @@ if (!PRESETS[key]) key = "acquaintance";
       "[state] — tracking totals.",
       "[lore] — Story Card and memory status.",
       "[relationships:Name] — relationship type and scores.",
-      "[memory:Name] — long-term memory and recent notes.",
+      "[gate:Name] — closest reachable status gate and recent direction.",
+      "[memory:Name] — summary, pinned moments and recent notes.",
+      "[pin:Full Name=lasting event] — preserve a moment across summaries.",
+      "[unpin:Full Name=event excerpt] — remove a pinned moment.",
       "[alias:Full Name=Nickname] — add a safe alias.",
       "[relationship:Full Name=preset] — reset the relationship.",
       "[keep:Name] or [major:Name] — retain an NPC as major.",
@@ -698,9 +913,7 @@ if (!PRESETS[key]) key = "acquaintance";
     var cfg = loreSettings(ce), r = c.relationship || {}, lines = [LORE_PROFILE_OPEN], relationship,
         compact = mode === "compact", minimal = mode === "minimal",
         description = c.origin === "story_card" || minimal ? "" : String(c.description || "").replace(/\s+/g, " ").trim().slice(0, compact ? 220 : 380),
-        recent = compact || minimal ? "" : (c.notes || []).slice(-3).join("; ").slice(0, 160),
-        goals = compact || minimal ? "" : (c.goals || []).filter(Boolean).slice(0, 2).join("; ").slice(0, 180),
-        memory = minimal ? "" : cleanMemorySummary(ensureMemory(ce, c).summary, compact ? 220 : 300);
+        goals = compact || minimal ? "" : (c.goals || []).filter(Boolean).slice(0, 2).join("; ").slice(0, 180);
     lines.push(c.name + (description ? " — " + description : ""));
     if (!minimal) lines.push("Status: " + (c.status || "active") + "; importance: " + (c.importance || "temporary") + ".");
     relationship = (minimal ? "Relationship: " : "Relationship with " + (ce.player && ce.player.name || "the player") + ": ") + (r.summary || "acquaintance");
@@ -709,9 +922,7 @@ if (!PRESETS[key]) key = "acquaintance";
         "; respect " + clamp(r.respect) + "; attraction " + clamp(r.attraction) + "; resentment " + clamp(r.resentment);
     }
     lines.push(relationship + ".");
-    if (memory) lines.push("Long-term memory: " + memory);
     if (goals) lines.push("Goals: " + goals + ".");
-    if (recent) lines.push("Recent developments: " + recent + ".");
     lines.push(LORE_PROFILE_CLOSE);
     return lines.join("\n");
   }
@@ -882,7 +1093,10 @@ if (!PRESETS[key]) key = "acquaintance";
     if (!Array.isArray(ce.scene.nearby)) ce.scene.nearby = [];
     normaliseSceneRoster(ce, false);
     if (typeof ce.resumeAfterCommand !== "boolean") ce.resumeAfterCommand = false;
+    if (typeof ce.needsStorySeparator !== "boolean") ce.needsStorySeparator = false;
     if (typeof ce.lastNarrative !== "string") ce.lastNarrative = "";
+    if (typeof ce.pendingSceneInput !== "string") ce.pendingSceneInput = "";
+    ce.sceneInference = ce.sceneInference || {};
     if (typeof ce.activeMemoryTaskId !== "string") ce.activeMemoryTaskId = "";
     ce.characters = ce.characters || {};
     Object.keys(ce.characters).forEach(function (id) {
@@ -931,7 +1145,9 @@ if (!PRESETS[key]) key = "acquaintance";
       settings: setup.settings || {},
       player: { name: playerName, knows: [] },
       scene: setup.scene || {}, characters: {}, threads: {}, threadCandidates: {}, truths: [], events: [],
-      pendingPanel: null, resumeAfterCommand: false, lastNarrative: "", activeMemoryTaskId: "", warnings: []
+      pendingPanel: null, resumeAfterCommand: false, needsStorySeparator: false,
+      lastNarrative: "", activeMemoryTaskId: "",
+      pendingSceneInput: "", sceneInference: {}, warnings: []
     };
     (setup.npcs || []).forEach(function (npc) {
       if (!npc) { ce.warnings.push("Skipped an NPC with no name."); return; }
@@ -981,6 +1197,25 @@ if (!PRESETS[key]) key = "acquaintance";
       if (words.indexOf(needle) >= 0 || full.indexOf(needle + " ") === 0 || needle.indexOf(full + " ") === 0) partial.push(c);
     }
     return partial.length === 1 ? partial[0] : null;
+  }
+  // Learn a title only after the story explicitly equates it with a known
+  // character. Mere mentions of a role must not reveal a hidden identity.
+  function learnExplicitCharacterTitles(ce, source) {
+    var prose = String(source || "").replace(/"[^"\n]*"|“[^”\n]*”/g, " ");
+    Object.keys(ce.characters || {}).forEach(function (id) {
+      var c = ce.characters[id], name, pattern, match, title;
+      if (!c || !c.name || normaliseName(c.name) === normaliseName(ce.player && ce.player.name)) return;
+      name = escapeRegExp(c.name);
+      pattern = new RegExp("\\b" + name + "(?:\\s*[,—–:.]\\s*|\\s*\\n\\s*|\\s+(?:is|was|known as|called|also known as)\\s+)(?:the|a|an)\\s+([A-Z][A-Za-z'’]*(?:\\s+[A-Z][A-Za-z'’]*){0,2})\\s+of\\b", "gi");
+      while ((match = pattern.exec(prose))) {
+        // The matcher is case-insensitive so it can read "The Villain" as
+        // well as "the Villain". Require the captured title itself to be a
+        // proper name: "Xander, the smell of rain" is ordinary prose.
+        if (!/^[A-Z]/.test(match[1])) continue;
+        title = "The " + match[1];
+        if (!exactCharacter(ce, title) || exactCharacter(ce, title).id === c.id) addAlias(ce, c, title);
+      }
+    });
   }
   function uniqueThreadAliases(values, primaryName) {
     var result = [], seen = {}, primary = normaliseName(primaryName);
@@ -1257,7 +1492,7 @@ if (!PRESETS[key]) key = "acquaintance";
     return ce.threads[id];
   }
   function panel(ce, kind, arg) {
-    var arm = kind === "commands" ? "COMMANDS" : (kind === "lore" || kind === "memory" ? "LORE" : (kind === "state" ? "LEDGER" : "NARRATION")),
+    var arm = kind === "commands" ? "COMMANDS" : (kind === "lore" || kind === "memory" ? "LORE" : (kind === "state" || kind === "gate" ? "LEDGER" : "NARRATION")),
         lines = ["CHRONICLE KEEPER — " + arm];
     if (kind === "commands") {
       lines.push(arg || "Player command reference ready.");
@@ -1265,11 +1500,16 @@ if (!PRESETS[key]) key = "acquaintance";
       lines.push(commandReferenceText());
     } else if (kind === "where") {
       var s = ce.scene || {};
+      if (ce.missingSceneTurns >= 2) lines.push("Model scene packets missing: " + ce.missingSceneTurns + " story turn(s); fields without direct prose evidence may be stale.");
       lines.push([s.location, s.area].filter(Boolean).join(" — ") || "Location unknown");
       lines.push([s.day ? "Day " + s.day : "", s.time || ""].filter(Boolean).join(", "));
       lines.push("Player: " + (ce.player && ce.player.name || "Player"));
       lines.push("Present NPCs: " + ((s.present || []).join(", ") || "None"));
       lines.push("Nearby NPCs: " + ((s.nearby || []).join(", ") || "None"));
+      if (ce.missingSceneTurns) {
+        var verified = Object.keys(ce.sceneInference || {}).filter(function (key) { return ce.sceneInference[key]; });
+        lines.push("Prose-derived fields: " + (verified.join(", ") || "None; last recorded scene shown"));
+      }
     } else if (kind === "threads") {
       Object.keys(ce.threads).map(function (id) { return ce.threads[id]; }).sort(function(a,b){ return b.importance-a.importance; })
         .forEach(function (t) {
@@ -1286,6 +1526,13 @@ if (!PRESETS[key]) key = "acquaintance";
         if ((c.aliases || []).length) lines.push("Aliases: " + c.aliases.join(", "));
         ["familiarity","trust","affection","respect","attraction","resentment"].forEach(function(k){ lines.push("• " + k + ": " + r[k]); });
       }
+    } else if (kind === "gate") {
+      var gateCharacter = findCharacter(ce, arg);
+      if (!gateCharacter) lines.push("No tracked character named " + arg + ".");
+      else {
+        lines.push(gateCharacter.name + " — " + gateCharacter.relationship.summary);
+        relationshipGateReport(ce, gateCharacter).forEach(function (line) { lines.push(line); });
+      }
     } else if (kind === "memory") {
       var memoryCharacter = findCharacter(ce, arg), memoryCfg = memorySettings(ce), memory;
       if (!memoryCharacter) lines.push("No tracked character named " + arg + ".");
@@ -1293,6 +1540,8 @@ if (!PRESETS[key]) key = "acquaintance";
         memory = ensureMemory(ce, memoryCharacter);
         lines.push(memoryCharacter.name);
         lines.push("Long-term summary: " + (memory.summary || "Not yet created."));
+        lines.push("Pinned moments: " + memory.anchors.length + " / " + MAX_ANCHORS + " (preserved across summaries)");
+        memory.anchors.forEach(function (anchor) { lines.push("• " + anchor.text); });
         lines.push("Recent developments: " + (memoryCharacter.notes || []).length + " / " + memoryCfg.noteThreshold + " before automatic consolidation");
         (memoryCharacter.notes || []).forEach(function (note) { lines.push("• " + note); });
         lines.push("Queued: " + (memory.pending ? "yes" : "no") + "; completed summaries: " + memory.summaryCount);
@@ -1317,6 +1566,10 @@ if (!PRESETS[key]) key = "acquaintance";
     } else {
       lines.push("Turn: " + ce.turn);
       lines.push("Scene: " + [ce.scene.location, ce.scene.area].filter(Boolean).join(" — "));
+      lines.push("Scene packets missing: " + Number(ce.missingSceneTurns || 0));
+      lines.push("Prose-derived fields: " + (Object.keys(ce.sceneInference || {}).filter(function (key) { return ce.sceneInference[key]; }).join(", ") || "none"));
+      if (ce.lastEmptyOutput) lines.push("Last empty output: turn " + ce.lastEmptyOutput.turn + "; " + ce.lastEmptyOutput.reason + "; raw " + ce.lastEmptyOutput.rawChars + " chars; scene state retained for retry.");
+      if (ce.contextDiagnostics) lines.push("Context: max " + ce.contextDiagnostics.maxChars + " chars; used " + ce.contextDiagnostics.usedChars + "; CK " + ce.contextDiagnostics.ckChars + "; free " + ce.contextDiagnostics.freeChars + "; compact " + (ce.contextDiagnostics.compact ? "yes" : "no") + "; thread push " + (ce.contextDiagnostics.hardPush ? "hard" : "gentle"));
       lines.push("Characters: " + Object.keys(ce.characters).length);
       lines.push("Threads: " + Object.keys(ce.threads).length);
       lines.push("Canon truths: " + ce.truths.length);
@@ -1368,6 +1621,15 @@ if (!PRESETS[key]) key = "acquaintance";
       }
       return "";
     });
+    input = input.replace(/\[\s*(pin|unpin)\s*:\s*([^=\]]+)\s*=\s*([^\]]+)\]/gi, function (_, action, characterName, event) {
+      var c = findCharacter(ce, characterName.trim()), result; handled += 1;
+      if (!c) confirmations.push("Pinned moment not changed: no tracked character named " + characterName.trim() + ".");
+      else {
+        result = action.toLowerCase() === "pin" ? addMemoryAnchor(ce, c, event, "player") : removeMemoryAnchor(ce, c, event);
+        confirmations.push("Pinned moment " + (result === "added" || result === "removed" ? result : "not changed: " + result) + " for " + c.name + ".");
+      }
+      return "";
+    });
     input = input.replace(/\[\s*(keep|forget|major|track|drop)\s*:\s*([^\]]+)\]/gi, function (_, command, value) {
       var c, t, existed; command = command.toLowerCase(); value = value.trim(); handled += 1;
       if (command === "keep" || command === "major") {
@@ -1399,6 +1661,10 @@ if (!PRESETS[key]) key = "acquaintance";
       handled += 1; ce.pendingPanel = { kind: "relationships", arg: value.trim() };
       return "";
     });
+    input = input.replace(/\[\s*gate\s*:\s*([^\]]+)\]/gi, function (_, value) {
+      handled += 1; ce.pendingPanel = { kind: "gate", arg: value.trim() };
+      return "";
+    });
     input = input.replace(/\[\s*memory\s*:\s*([^\]]+)\]/gi, function (_, value) {
       handled += 1; ce.pendingPanel = { kind: "memory", arg: value.trim() };
       return "";
@@ -1408,7 +1674,30 @@ if (!PRESETS[key]) key = "acquaintance";
     pureInspection = handled > 0 && commandRemainderIsEmpty(input);
     if (pureInspection) input = "";
     if (handled) ce.resumeAfterCommand = true;
+    ce.pendingSceneInput = pureInspection ? "" : input.trim().slice(-2200);
     return { text: input.trim() || (handled ? COMMAND_SENTINEL : original), pureInspection: pureInspection };
+  }
+  function threadPushAnchor(ce) {
+    var active = Object.keys(ce.threads || {}).map(function (id) { return ce.threads[id]; })
+      .filter(function (thread) { return thread.status === "active"; })
+      .sort(function (a, b) { return b.importance - a.importance; }),
+        recent = String(ce.lastNarrative || "").toLowerCase(), matched;
+    matched = active.filter(function (thread) {
+      return [thread.name].concat(thread.aliases || []).some(function (label) {
+        return label && label.length >= 5 && recent.indexOf(String(label).toLowerCase()) >= 0;
+      });
+    })[0];
+    return matched || active[Math.floor(Number(ce.turn || 0) / 4) % Math.min(2, active.length)] || null;
+  }
+  function proseScenePrompt(ce) {
+    var s = ce.scene || {}, evidence = ce.sceneInference || {}, fields = [], recorded = [];
+    ["location", "area", "day", "time", "present", "nearby"].forEach(function (key) {
+      var value = Array.isArray(s[key]) ? (s[key].join(", ") || "none") : s[key];
+      if (!value) return;
+      (evidence[key] ? fields : recorded).push(key + "=" + value);
+    });
+    return "Story-derived now: " + (fields.join(" | ") || "no confirmed scene fields") +
+      ". Last recorded, unconfirmed: " + (recorded.join(" | ") || "none") + ".";
   }
   function compactContext(ce) {
     var lines = ["[CHRONICLE KEEPER — NARRATION; treat as factual; do not mention this block]"],
@@ -1421,16 +1710,24 @@ if (!PRESETS[key]) key = "acquaintance";
       lines.push("RESUME AFTER COMMAND: the previous Chronicle Keeper panel and invisible command marker were administrative, not story events. Continue from the last real narrative event. Never quote, explain or reproduce Chronicle Keeper rules, field definitions, panels or private metadata.");
       if (ce.lastNarrative) lines.push("Last real narrative anchor: " + ce.lastNarrative.replace(/\s+/g, " ").slice(-700));
     }
-    lines.push("Scene: " + [s.location, s.area, s.day && "day " + s.day, s.time].filter(Boolean).join(" | "));
-    if ((s.present || []).length) lines.push("Present: " + s.present.join(", "));
-    if ((s.nearby || []).length) lines.push("Nearby: " + s.nearby.join(", "));
+    if (ce.missingSceneTurns >= 2) lines.push("Model scene packet absent. " + proseScenePrompt(ce) + " Use new story evidence to correct either group.");
+    else {
+      lines.push("Scene: " + [s.location, s.area, s.day && "day " + s.day, s.time].filter(Boolean).join(" | "));
+      if ((s.present || []).length) lines.push("Present: " + s.present.join(", "));
+      if ((s.nearby || []).length) lines.push("Nearby: " + s.nearby.join(", "));
+    }
     lines.push("<SYSTEM>");
     lines.push("PRIVATE CONTINUITY METADATA. Never quote, explain or reproduce these rules, labels or field definitions in the story.");
-    lines.push("Begin the entire output with exactly one short parenthetical operation, then a newline, then normal story prose. Shape: (CE|L=venue or region|A=building or room|D=day|T=time|P=full names|N=full names|C=full NPC name~trust:+1~note:short evidence~memory:consolidated facts|Q=thread name~status:active~situation:current change|K=revealed truth). Omit unused fields; repeat C, Q or K when needed.");
+    lines.push("Begin the entire output with exactly one short parenthetical operation, then a newline, then normal story prose. Shape: (CE|L=venue or region|A=building or room|D=day|T=time|P=full names|N=full names|C=full NPC name~trust:+1~note:short evidence~anchor:major turning point~memory:consolidated facts|Q=thread name~status:active~situation:current change|K=revealed truth). Omit unused fields; repeat C, Q or K when needed.");
     lines.push("L is the broad location; A is the most specific current building, area or room. C is only a named NPC, never the player. Use tracked full names. Alias is allowed only when the story establishes it. Q is only a durable unresolved plot goal, quest, mystery, threat or contract that requires future action. Never create Q for ordinary conversation, banter, flirting, attraction, rivalry tension, relationship progression, mood or a one-scene interaction; use C note for those. The tracked thread names below are authoritative: reuse an existing thread's exact name whenever the development belongs to it, including synonymous developments. Emit at most one genuinely new Q per turn; a new name is retained only after recurring across distinct turns. Q status is active, dormant, resolved, failed or abandoned. Q situation updates the current development only and never rewrites a protected premise. K is a truth actually revealed or evidenced this turn.");
     lines.push("Scene duty: the player's current input is authoritative now. P and N contain named non-player characters only; never include the player's resolved name. Apply explicit movement in this same operation, never on a later turn. Joining the player, table or conversation means P and removal from N. Moving across the room, to a distant desk, outside or into an adjacent space means N and removal from P. Leaving the venue means removal from both. P and N must be disjoint. When either changes, emit both complete rosters; use P=none or N=none when empty.");
+    if (ce.missingSceneTurns >= 2) lines.push("The last scene packet is missing. Rebuild L, A, D, T, P and N from the latest actual story in this output, including unchanged fields, then continue the story.");
+    if (ce.hardThreadPush) {
+      var pushThread = threadPushAnchor(ce);
+      if (pushThread) lines.push("LONG STORY: advance the active thread " + pushThread.name + " from its current situation (" + String(pushThread.currentSituation || pushThread.premise || "").slice(0,180) + ") with one NEW consequence, clue or NPC action this turn. Leave the player's decision to them; do not repeat the same beat.");
+    }
     lines.push("Relationship pacing is " + pacing + ". Use only evidenced changes to familiarity, trust, affection, respect, attraction or resentment. Each delta is between -" + relationshipLimit + " and +" + relationshipLimit + ", normally -1 or +1; change at most " + relationshipAxes + " relevant axes for one NPC per turn. Routine presence alone changes nothing.");
-    lines.push("C note records one concise verified, durable NPC development from this turn, even when no relationship delta occurs. Use it for promises, discoveries, secrets, betrayals, injuries, alliances, role or goal changes and major shared events; omit routine presence, positioning and small talk. C memory is a complete replacement long-term summary and is allowed only when a MEMORY TASK below requests it. It consolidates only the supplied prior summary and verified notes; it must not invent or predict.");
+    lines.push("C note records one concise verified, durable NPC development from this turn, even when no relationship delta occurs. Use it for promises, discoveries, secrets, betrayals, injuries, alliances, role or goal changes and major shared events; omit routine presence, positioning and small talk. C anchor is optional, only for a newly witnessed major irreversible or defining turning point, not a routine note or an old event. At most one anchor per NPC per turn, and never re-anchor a known moment. Pinned moments survive summary replacements. C memory is a complete replacement rolling summary and is allowed only when a MEMORY TASK below requests it. It consolidates only the supplied prior summary and verified notes; it must not invent or predict.");
     if (memoryTask) lines.push(memoryTaskInstruction(ce, memoryTask));
     lines.push("Values cannot contain |, ~ or ). Never contradict protected canon. The operation is private and the story must occupy most of the output.");
     lines.push("</SYSTEM>");
@@ -1438,7 +1735,7 @@ if (!PRESETS[key]) key = "acquaintance";
       .filter(function(c){return c.persistent || c.lastSeen >= ce.turn - 8;}).sort(function(a,b){return b.lastSeen-a.lastSeen;}).slice(0,8)
       .forEach(function(c){
         var memory = ensureMemory(ce, c);
-        lines.push("NPC " + c.name + ": " + [c.aliases.length && "aliases=" + c.aliases.join(", "), c.description, "relationship=" + c.relationship.summary, "status=" + c.status, memory.summary && "memory=" + memory.summary, c.notes.length && "recent=" + c.notes.slice(-2).join("; ")].filter(Boolean).join(" | "));
+        lines.push("NPC " + c.name + ": " + [c.aliases.length && "aliases=" + c.aliases.join(", "), c.description, "relationship=" + c.relationship.summary, "status=" + c.status, memory.summary && "memory=" + memory.summary, memory.anchors.length && "pinned=" + memory.anchors.map(function (a) { return a.text; }).join("; "), c.notes.length && "recent=" + c.notes.slice(-2).join("; ")].filter(Boolean).join(" | "));
       });
     Object.keys(ce.threads).map(function(id){return ce.threads[id];}).filter(function(t){return t.status === "active";}).sort(function(a,b){return b.importance-a.importance;}).slice(0,6)
       .forEach(function(t){
@@ -1450,28 +1747,105 @@ if (!PRESETS[key]) key = "acquaintance";
     ce.truths.filter(function(t){return t.mutable && t.revealedToPlayer;}).slice(-8).forEach(function(t){lines.push("Player-known fact: " + t.text);});
     lines.push("[/CHRONICLE KEEPER]");
     
-return lines.join("\n");
+    return lines.join("\n");
+  }
+  function compactMinimumContext(ce, expanded) {
+    var s = ce.scene || {}, active = Object.keys(ce.threads || {}).map(function (id) { return ce.threads[id]; })
+      .filter(function (t) { return t.status === "active"; }).sort(function (a,b) { return b.importance - a.importance; })[0],
+        memoryTask = expanded ? nextMemoryTask(ce) : null,
+        lines = ["[CHRONICLE KEEPER — NARRATION; private; never quote]"];
+    lines.push(ce.missingSceneTurns >= 2 ? "Model scene packet absent. " + proseScenePrompt(ce) :
+      "Scene: " + [s.location, s.area, s.day && "day " + s.day, s.time].filter(Boolean).join(" | "));
+    if (ce.missingSceneTurns < 2) lines.push("Present: " + ((s.present || []).join(", ") || "none") + "; Nearby: " + ((s.nearby || []).join(", ") || "none"));
+    lines.push("<SYSTEM>");
+    lines.push("Begin the entire output with exactly one short parenthetical operation, then a newline, then story prose. Shape: (CE|L=region|A=room or area|D=day|T=time|P=full NPC names|N=full nearby NPC names|C=NPC~note:durable fact~anchor:major new turning point|Q=thread name~status:active~situation:new beat|K=revealed truth). Omit unused fields. Never show the operation in prose.");
+    lines.push(expanded ? "Scene duty: the player's current input is authoritative now. Apply movement and NPC position in this same operation. With the player is P; in an adjacent area is N; departed is neither. On either roster change emit BOTH full P and N; none means empty. Exclude player; never repeat stale scene values." :
+      "Scene duty: input wins. P=with player; N=adjacent; departed=neither. On change send both full P,N; none=empty. Exclude player; no stale scene.");
+    lines.push(expanded ? "Relationship duty: for meaningful interaction, emit C=Name~trust:+1 (or familiarity, affection, respect, attraction, resentment). At most " + (ce.settings.relationshipPacing === "dramatic" ? 2 : 1) + " point(s) per axis and " + (ce.settings.relationshipPacing === "slow" ? 1 : (ce.settings.relationshipPacing === "dramatic" ? 3 : 2)) + " axes per NPC. Routine presence changes nothing; CK updates labels." :
+      "C=Name~trust:+1 for earned score change; C=Name~note:verified lasting NPC event, even without score change. No trait lists.");
+    if (expanded) lines.push("Memory duty: for a lasting named NPC choice, promise, discovery or change, emit C=Name~note:one verified event. This is separate from score changes. Do not repeat traits, routine presence or old notes.");
+    lines.push("Anchor duty: only for a newly witnessed major defining event, emit C=Name~anchor:verified moment; never for routine notes or repeats. Existing pinned moments persist across rolling summaries.");
+    if (ce.missingSceneTurns >= 2) lines.push("Scene packet missing: include all current L, A, D, T, P and N from the latest story now.");
+    if (ce.hardThreadPush && active) lines.push("Advance thread " + active.name + " now with a NEW consequence or NPC initiative. Preserve player choice.");
+    if (memoryTask) {
+      var recentEvidence = String(ce.lastNarrative || "").replace(/[|~)]/g, " ").replace(/\s+/g, " ").trim();
+      lines.push("Private memory task: merge " + memoryTask.name + "'s earlier summary [" +
+        String(ensureMemory(ce, memoryTask).summary || "none").slice(0,150) + "] with verified notes [" +
+        (memoryTask.notes || []).slice(-5).join("; ").replace(/[|~)]/g, " ").slice(0,350) + "]" +
+        ((memoryTask.notes || []).length < memorySettings(ce).noteThreshold && recentEvidence &&
+          (normaliseName(recentEvidence).indexOf(normaliseName(memoryTask.name)) >= 0 ||
+           (s.present || []).map(normaliseName).indexOf(normaliseName(memoryTask.name)) >= 0) ?
+          " and recent story evidence [" + recentEvidence.slice(-280) + "]" : "") +
+        ". Return factual C=" + memoryTask.name + "~memory:merged events, not a trait list; pinned moments are separately retained; do not narrate this task.");
+    }
+    lines.push("</SYSTEM>");
+    if (active) lines.push("Thread " + active.name + ": " + String(active.currentSituation || active.premise || "").slice(0,125));
+    if (expanded) {
+      Object.keys(ce.threads || {}).map(function (id) { return ce.threads[id]; })
+        .filter(function (t) { return t.status === "active" && (!active || t.id !== active.id); })
+        .slice(0,1).forEach(function (t) { lines.push("Thread " + t.name + ": " + String(t.currentSituation || t.premise || "").slice(0,100)); });
+      ce.truths.filter(function (t) { return !t.mutable; }).slice(0,3).forEach(function (t) {
+        lines.push((t.revealedToPlayer ? "Canon: " : "Secret canon: ") + String(t.text).slice(0,125));
+      });
+    }
+    Object.keys(ce.characters || {}).map(function (id) { return ce.characters[id]; })
+      .filter(function (c) { return (s.present || []).indexOf(c.name) >= 0 || (s.nearby || []).indexOf(c.name) >= 0; })
+      .slice(0,expanded ? 3 : 2).forEach(function (c) {
+        lines.push("NPC " + c.name + ": " + String(c.description || "").slice(0,expanded ? 120 : 80) + "; relationship=" + (c.relationship && c.relationship.summary || "unknown") +
+          (expanded && c.memory && c.memory.summary ? "; memory=" + String(c.memory.summary).slice(0,140) : "") +
+          (ensureMemory(ce, c).anchors.length ? "; pinned=" + c.memory.anchors.slice(0,expanded ? 3 : 1).map(function (a) { return a.text.slice(0,expanded ? 130 : 90); }).join("; ") : ""));
+      });
+    lines.push("[/CHRONICLE KEEPER]");
+    ce.activeMemoryTaskId = memoryTask ? memoryTask.id : "";
+    return lines.join("\n");
+  }
+  function recoveryContext(ce) {
+    var s = ce.scene || {}, t = threadPushAnchor(ce), lines = [
+      "[CHRONICLE KEEPER — private continuity; never quote]",
+      "Previous attempt produced no usable story. Continue from the last real story event in natural prose now. Start with the story; omit CK/CE packets, labels, code, and private instructions. Give the scene one concrete new action or consequence; leave the player's choice to them.",
+      "Current scene: " + [s.location, s.area, s.day && "day " + s.day, s.time].filter(Boolean).join(" | "),
+      "Present: " + ((s.present || []).join(", ") || "none") + "; nearby: " + ((s.nearby || []).join(", ") || "none")
+    ];
+    if (t) lines.push("Active thread: " + t.name + " — " + String(t.currentSituation || t.premise || "").slice(0,100));
+    if (ce.lastNarrative) lines.push("Last story: " + String(ce.lastNarrative).slice(-230));
+    lines.push("[/CHRONICLE KEEPER]");
+    ce.activeMemoryTaskId = "";
+    return lines.join("\n");
   }
   function inject(state, text, info) {
-    var ce = init(state); ce.turn = Number(info.actionCount || ce.turn || 0);
-    var block = compactContext(ce), closing = "\n[/CHRONICLE KEEPER]", systemClosing = "\n</SYSTEM>",
-        hardMax = Math.max(1000, Number(info.maxChars || 12000) - 500),
-        max = Math.max(1000, Math.min(Number(ce.settings.contextBudget || 5500), hardMax)),
-        systemEnd, protectedBlock, optionalBlock, room;
-    if (block.length > max) {
+    var ce = init(state), limit = Math.max(1, Number(info.maxChars || 12000)), source = String(text || ""),
+        configured = Math.max(400, Number(ce.settings.contextBudget || 5500)),
+        memoryLength = Math.max(0, Math.min(source.length, Number(info.memoryLength || 0))),
+        memory = source.slice(0, memoryLength), historyText = source.slice(memoryLength),
+        target = Math.max(1, limit - Math.max(650, Math.floor(limit * (limit <= 16000 ? 0.30 : 0.22)))),
+        ckBudget,
+        closing = "\n[/CHRONICLE KEEPER]", systemClosing = "\n</SYSTEM>",
+        block, systemEnd, core, optional, room, recentReserve, keptMemory, result;
+    ce.turn = Number(info.actionCount || ce.turn || 0);
+    ce.longStoryPressure = source.length >= limit * 0.55 || ce.turn >= 24;
+    ce.hardThreadPush = ce.longStoryPressure &&
+      (Number(ce.quietThreadTurns || 0) >= 2 || (ce.turn >= 50 && ce.turn % 2 === 1));
+    block = Number(ce.emptyOutputCount || 0) > 0 ? recoveryContext(ce) :
+      (limit <= 16000 ? compactMinimumContext(ce, limit > 4000) : compactContext(ce));
+    ckBudget = Math.min(configured, limit <= 16000 ? Math.min(3000, Math.floor(target * 0.32)) : target);
+    if (block.length > ckBudget) {
       systemEnd = block.indexOf(systemClosing);
-      if (systemEnd >= 0) {
-        protectedBlock = block.slice(0, systemEnd + systemClosing.length);
-        max = Math.min(hardMax, Math.max(max, protectedBlock.length + closing.length));
-        optionalBlock = block.slice(protectedBlock.length, block.length - closing.length);
-        room = Math.max(0, max - protectedBlock.length - closing.length);
-        optionalBlock = optionalBlock.slice(0, room).replace(/\n[^\n]*$/, "");
-        block = protectedBlock + optionalBlock + closing;
-      } else {
-        block = block.slice(0, max - closing.length).replace(/\n[^\n]*$/, "") + closing;
+      core = systemEnd >= 0 ? block.slice(0, systemEnd + systemClosing.length) : block;
+      if (core.length + closing.length > ckBudget) { block = compactMinimumContext(ce, false); core = block; }
+      else {
+        optional = block.slice(core.length, block.length - closing.length).split("\n");
+        block = core;
+        optional.forEach(function (line) { if (line && block.length + line.length + closing.length + 1 <= ckBudget) block += "\n" + line; });
+        block += closing;
       }
     }
-    return (text + "\n" + block).slice(-Number(info.maxChars || 12000));
+    room = Math.max(0, target - block.length - 1);
+    recentReserve = Math.min(historyText.length, Math.max(300, Math.floor(room * 0.45)));
+    keptMemory = memory.slice(0, Math.max(0, room - recentReserve));
+    result = keptMemory + historyText.slice(-Math.max(0, room - keptMemory.length)) + "\n" + block;
+    ce.contextDiagnostics = { maxChars:limit, usedChars:result.length, ckChars:block.length,
+      freeChars:limit-result.length, compact:block.indexOf("[CHRONICLE KEEPER — NARRATION; private;") >= 0, hardPush:ce.hardThreadPush };
+    return result;
   }
   function applyUpdate(ce, update) {
     if (!update || typeof update !== "object") return;
@@ -1480,12 +1854,12 @@ return lines.join("\n");
         relationshipAxes = pacing === "slow" ? 1 : (pacing === "dramatic" ? 3 : 2),
         relationshipKeys = ["familiarity","trust","affection","respect","attraction","resentment"],
         presentWasSet = false, nearbyWasSet = false,
-        characterUpdates = (update.characters || []).slice(0,10);
+        characterUpdates = (update.characters || []).slice(0,10), consolidatedNotes = {};
     if (update.scene) {
-      ["location","area","time"].forEach(function(k){ if (update.scene[k]) ce.scene[k] = String(update.scene[k]); });
-      if (update.scene.day) ce.scene.day = normaliseDay(update.scene.day);
-      if (Array.isArray(update.scene.present)) { ce.scene.present = update.scene.present.slice(0,12).map(String); presentWasSet = true; }
-      if (Array.isArray(update.scene.nearby)) { ce.scene.nearby = update.scene.nearby.slice(0,12).map(String); nearbyWasSet = true; }
+      ["location","area","time"].forEach(function(k){ if (update.scene[k]) { ce.scene[k] = String(update.scene[k]); ce.sceneInference[k] = false; } });
+      if (update.scene.day) { ce.scene.day = normaliseDay(update.scene.day); ce.sceneInference.day = false; }
+      if (Array.isArray(update.scene.present)) { ce.scene.present = uniqueRoster(update.scene.present); presentWasSet = true; ce.sceneInference.present = false; }
+      if (Array.isArray(update.scene.nearby)) { ce.scene.nearby = uniqueRoster(update.scene.nearby); nearbyWasSet = true; ce.sceneInference.nearby = false; }
       if (presentWasSet || nearbyWasSet) normaliseSceneRoster(ce, nearbyWasSet && !presentWasSet);
     }
     // Consolidate old notes before applying any new notes from this turn, even if
@@ -1496,13 +1870,14 @@ return lines.join("\n");
       if (ce.player && normaliseName(u.name) === normaliseName(ce.player.name)) return;
       c = findCharacter(ce, String(u.name));
       if (!c) { boundedWarning(ce, "Memory summary ignored for unknown character " + String(u.name) + "."); return; }
-      applyMemorySummary(ce, c, u.memory);
+      var beforeNotes = (c.notes || []).map(normaliseName);
+      if (applyMemorySummary(ce, c, u.memory)) consolidatedNotes[c.id] = beforeNotes;
     });
     characterUpdates.forEach(function(u){
       if (!u || !u.name) return;
       if (ce.player && String(u.name).trim().toLowerCase() === String(ce.player.name || "").trim().toLowerCase()) return;
       var hasRelationshipDelta = relationshipKeys.some(function (key) { return (Number((u.relationship || {})[key]) || 0) !== 0; }),
-          memoryOnly = !!u.memory && !u.note && !u.status && !u.importance && !u.alias && !hasRelationshipDelta,
+          memoryOnly = !!u.memory && !u.note && !u.anchor && !u.status && !u.importance && !u.alias && !hasRelationshipDelta,
           c = memoryOnly ? findCharacter(ce, String(u.name)) : addCharacter(ce, String(u.name), "emergent");
       if (!c) { boundedWarning(ce, "Memory summary ignored for unknown character " + String(u.name) + "."); return; }
       if (!memoryOnly) recordMention(ce, c);
@@ -1510,7 +1885,8 @@ return lines.join("\n");
       if (u.importance && ["temporary","recurring","major"].indexOf(u.importance) >= 0) c.importance = u.importance;
       if (c.importance === "recurring" || c.importance === "major") c.persistent = true;
       if (u.alias) addAlias(ce, c, u.alias);
-      if (u.note) addCharacterNote(ce, c, u.note);
+      if (u.note && (consolidatedNotes[c.id] || []).indexOf(normaliseName(u.note)) < 0) addCharacterNote(ce, c, u.note);
+      if (u.anchor) addMemoryAnchor(ce, c, u.anchor, "auto");
       relationshipKeys.map(function(k){
         return { key:k, delta:Number((u.relationship || {})[k]) || 0 };
       }).filter(function(change){
@@ -1558,6 +1934,11 @@ return lines.join("\n");
   function parseOperation(ce, operation) {
     var update = { scene: {}, characters: [], threads: [], revealedTruths: [] };
 
+    function roster(value) {
+      if (/^(?:none|empty|-)?$/i.test(value)) return [];
+      return uniqueRoster(value.split(","));
+    }
+
     function properties(parts) {
       var out = {};
       parts.forEach(function (part) {
@@ -1578,8 +1959,8 @@ return lines.join("\n");
       else if (key === "A") update.scene.area = value;
       else if (key === "D") update.scene.day = value;
       else if (key === "T") update.scene.time = value;
-      else if (key === "P") update.scene.present = /^(?:none|empty|-)?$/i.test(value) ? [] : value.split(",").map(function (v) { return v.trim(); }).filter(Boolean);
-      else if (key === "N") update.scene.nearby = /^(?:none|empty|-)?$/i.test(value) ? [] : value.split(",").map(function (v) { return v.trim(); }).filter(Boolean);
+      else if (key === "P") update.scene.present = roster(value);
+      else if (key === "N") update.scene.nearby = roster(value);
       else if (key === "K") update.revealedTruths.push(value);
       else if (key === "C") {
         var cp = value.split("~"), cprops = properties(cp.slice(1)), rel = {};
@@ -1592,6 +1973,7 @@ return lines.join("\n");
           importance: cprops.importance,
           alias: cprops.alias,
           note: cprops.note,
+          anchor: cprops.anchor,
           memory: cprops.memory,
           relationship: rel
         });
@@ -1606,6 +1988,8 @@ return lines.join("\n");
       }
     });
 
+    if (Object.keys(update.scene).length) ce.scenePacketThisTurn = true;
+    if (update.threads.some(function (t) { return t.situation || t.status; })) ce.threadUpdatedThisTurn = true;
     applyUpdate(ce, update);
   }
 
@@ -1719,7 +2103,8 @@ return lines.join("\n");
       var subject = escaped(name), movement = "(?:has\\s+left|had\\s+left|leaves|left|exits|exited|departs|departed|disappears|disappeared|heads|headed|walks|walked|moves|moved|slips|slipped)",
           destination = "(?:the\\s+)?(?:venue|scene|area|room|building|market|square|tavern|inn|guildhall|house|home|district|town|city|village|crowd)|outside|away|elsewhere|entirely|out\\s+of\\s+sight|north|south|east|west",
           pattern = new RegExp("\\b" + subject + "\\b[^.!?\\n]{0,90}\\b" + movement + "\\b[^.!?\\n]{0,100}\\b(?:" + destination + ")\\b", "i"),
-          match = text.match(pattern), lead;
+          clearDeparture = new RegExp("\\b" + subject + "\\s+(?:has\\s+|had\\s+)?(?:departed|left|exited)\\b", "i"),
+          match = text.match(pattern) || text.match(clearDeparture), lead;
       if (!match) return;
       lead = text.slice(Math.max(0, match.index - 24), match.index + match[0].length).toLowerCase();
       if (/\b(?:not|never|cannot|can't|doesn't|does not|refuses? to|tries? to|attempts? to)\b[^.!?\n]{0,35}(?:leave|left|exit|depart|disappear|head|walk|move|slip)/i.test(lead)) return;
@@ -1729,6 +2114,238 @@ return lines.join("\n");
     });
 
     if (removed.length) boundedWarning(ce, "Turn " + ce.turn + " reconciled explicit scene departure: " + removed.join(", ") + ".");
+  }
+
+  function sameSceneSite(left, right) {
+    function site(value) {
+      var text = String(value || "").toLowerCase(),
+          match = text.match(/\b(?:(?:[a-z'’]+\s+){0,2})?(cottage|keep|castle|manor|estate|tavern|inn|library|house|market)\b/i);
+      if (!match) return null;
+      return { kind:match[1], name:match[0].trim() };
+    }
+    var a = site(left), b = site(right);
+    return !!(a && b && a.kind === b.kind &&
+      (a.name === b.name || a.name === a.kind || b.name === b.kind));
+  }
+
+  // Fallback for actual events in the accepted story. This deliberately does
+  // not turn a mentioned destination, a plan, or another person's trip into
+  // the player's current scene. A model packet can still supply richer detail.
+  function reconcileProseScene(ce, source, dayContext, priorRoster) {
+    var text = String(source || "").slice(-5000), clauses, recent = [], doorClosed = false,
+        labels = {}, changes = [];
+    if (!text || /CHRONICLE KEEPER\s+[—-]\s*(?:NARRATION|LEDGER|LORE|COMMANDS)/i.test(text)) return;
+    text = text.replace(/"[^"\n]*"|“[^”\n]*”/g, " ");
+    clauses = text.match(/[^.!?;\n]+[.!?;]?/g) || [];
+
+    function mark(key, value) {
+      if (value === undefined || value === null || value === "") return;
+      if (key === "day") value = normaliseDay(value);
+      if (normaliseName(ce.scene[key]) !== normaliseName(value)) changes.push(key + "=" + value);
+      ce.scene[key] = value;
+      ce.sceneInference[key] = true;
+    }
+    function venueName(value) {
+      var item = String(value || "").replace(/^(?:the|your|my|our|a|an)\s+/i, "")
+        .replace(/\s+[—–-]\s+(?:inside|outside)\b.*$/i, "")
+        .replace(/\s+(?:door(?:way|frame)?|threshold|gate|entrance|front|steps?)\b.*$/i, "")
+        .replace(/\s+(?:looms|waits|sits|stands|comes|looks|rests|is|was|will|can|has)\b.*$/i, "")
+        .replace(/\s+(?:after|before|under|beneath|beyond|beside|near|along|ahead|behind|around|past|through)\b.*$/i, "")
+        .replace(/\s+(?:where|while|as|with|and|but|that)\b.*$/i, "")
+        .replace(/[^A-Za-z0-9'’& -]/g, "").trim();
+      if (!item || item.length > 55) return "";
+      if (/^(?:it|him|her|them|there|you|me|us|one|place|way)$/i.test(item)) return "";
+      // Arrival patterns can overrun a verb and capture ordinary narration
+      // such as "and close your". Keep familiar venues or an actual proper name.
+      var known = item.match(/\b(?:market\s+square|cottage|guildhall|tavern|library|gardens?|market|house|home|inn|kitchen|bedroom|hallway|road|path|street|lane|trail|room|well)\b/i);
+      if (known) item = known[0];
+      else if (!/^[A-Z][A-Za-z0-9'’-]*(?:\s+[A-Z][A-Za-z0-9'’-]*){0,3}$/.test(item)) return "";
+      return item.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
+    }
+    function placeArea(venue, side, clause) {
+      var current = String(ce.scene.area || ""), prior = (ce.scene.present || []).slice(),
+          normalized = venueName(venue), next, sameBuilding;
+      if (!normalized) return;
+      if (/\bcottage\b/i.test(normalized) && /\bcottage\b/i.test(current) &&
+          !/\b(?:lane|road|street|path|trail)\b/i.test(current))
+        normalized = current.replace(/\s+[—–-]\s+(?:inside|outside)\b.*$/i, "");
+      if (/^(?:road|path|street|lane|trail|track|market|market square|garden|gardens|well)$/i.test(normalized)) next = normalized;
+      else next = normalized + (side ? " — " + side : "");
+      if (normaliseName(current) === normaliseName(next)) { ce.sceneInference.area = true; return; }
+      sameBuilding = sameSceneSite(current, next) ||
+        (/^(?:Room|Kitchen|Bedroom|Hallway)$/i.test(normalized) &&
+         /\b(?:keep|cottage|house|castle|manor|estate|tavern|inn)\b/i.test(current));
+      mark("area", next);
+      if (/\b(?:tavern|inn|house|home|cottage|guildhall|hall|room|library|garden|market|square|road|path|street|lane|trail)\b/i.test(ce.scene.location || "") &&
+          normaliseName(ce.scene.location) !== normaliseName(normalized)) {
+        mark("location", normalized);
+      }
+      if (sameBuilding) ce.scene.nearby = uniqueRoster((ce.scene.nearby || []).concat(prior));
+      else {
+        ce.sceneDisplaced = uniqueRoster((ce.sceneDisplaced || []).concat(prior, ce.scene.nearby || [])).slice(-12);
+        ce.scene.nearby = [];
+      }
+      ce.scene.present = [];
+      ce.sceneInference.present = ce.sceneInference.nearby = true;
+      // A named person who explicitly accompanies the player crosses with them.
+      Object.keys(labels).forEach(function (variant) {
+        var name = labels[variant];
+        if (!name || !new RegExp("\\b(?:with\\s+" + escapeRegExp(variant) + "|" + escapeRegExp(variant) + "\\s+(?:follows?|followed)\\s+you)\\b", "i").test(clause)) return;
+        putActor(name, "present");
+      });
+    }
+    function putActor(name, position) {
+      var person = findCharacter(ce, name), key = normaliseName(person ? person.name : name);
+      if (!key || key === normaliseName(ce.player && ce.player.name) || /^(?:you|your|we|they|he|she|the|then)$/i.test(name)) return;
+      name = person ? person.name : name;
+      ce.scene.present = (ce.scene.present || []).filter(function (item) { return normaliseName(item) !== key; });
+      ce.scene.nearby = (ce.scene.nearby || []).filter(function (item) { return normaliseName(item) !== key; });
+      if (position !== "gone") ce.scene[position] = uniqueRoster((ce.scene[position] || []).concat([name]));
+      if (position !== "gone") ce.sceneDisplaced = (ce.sceneDisplaced || []).filter(function (item) { return normaliseName(item) !== key; });
+      ce.sceneInference.present = ce.sceneInference.nearby = true;
+      changes.push(name + "→" + position);
+    }
+    Object.keys(ce.characters || {}).forEach(function (id) {
+      var character = ce.characters[id], parts, variants;
+      if (!character || normaliseName(character.name) === normaliseName(ce.player && ce.player.name)) return;
+      parts = character.name.split(/\s+/);
+      variants = [character.name].concat(parts.length > 1 && parts[0].length >= 3 ? [parts[0]] : [], character.aliases || []);
+      variants.forEach(function (variant) {
+        var key = normaliseName(variant);
+        if (!key) return;
+        if (labels[key] && labels[key] !== character.name) labels[key] = null;
+        else if (labels[key] === undefined) labels[key] = character.name;
+      });
+    });
+    clauses.forEach(function (raw) {
+      var clause = raw.trim(), history, day, clock, arrival, target = "", side = "", match,
+          contextVenue, player = "(?:you|we|I|" + escapeRegExp(ce.player && ce.player.name || "Player") + ")";
+      if (!clause || /\b(?:if|would|could|should|might|imagine|imagined|dreamed|remember|remembered|yesterday|earlier|tomorrow|next week|plan to|planned to|try to|tried to|attempt to|attempted to)\b/i.test(clause)) return;
+      recent.push(clause); if (recent.length > 3) recent.shift();
+      history = recent.join(" ");
+      if (/\b(?:you|we|I)\b[^.!?;]{0,55}\b(?:close|closed|shut|pull|pulled)\b[^.!?;]{0,18}\b(?:the|your|my)\s+door\b/i.test(clause) ||
+          /\b(?:the|your|my)\s+door\s+(?:closes?|shuts?)\b/i.test(clause)) doorClosed = true;
+      match = clause.match(/\b(?:cottage|house|home|tavern|inn|guildhall|library|market|gardens?|road|path|street|lane|trail|room|kitchen|bedroom|hallway|well)\b/i);
+      day = clause.match(/\bday\s+(\d{1,5})\b/i);
+      if (day && /\b(?:it is|it's|now|today|currently|on|at|day)\b/i.test(clause.slice(0, day.index) + " day")) mark("day", day[1]);
+      if (/\b(?:night air|night sky|moonlight|under the moon|after dark|at night|the night falls|night has fallen|at midnight|past midnight)\b/i.test(clause)) clock = "Night";
+      else if (/\b(?:late evening|twilight|dusk|sunset|sun goes down|sun sets|evening air|evening falls)\b/i.test(clause)) clock = "Evening";
+      else if (/\b(?:late afternoon|afternoon sun|this afternoon)\b/i.test(clause)) clock = "Afternoon";
+      else if (/\b(?:morning light|morning sun|morning routine|morning arrives|(?:the|this|next|following) morning|at dawn|dawn breaks|this morning|make(?:s|made)? (?:your|our|my|the) breakfast)\b/i.test(clause)) clock = "Morning";
+      if (clock) {
+        // A retrospective night reference in this turn must not make the
+        // following mention of morning roll the calendar forward again.
+        if (clock === "Morning" && dayContext && !dayContext.advanced &&
+            (dayContext.startedAtNight || dayContext.explicitNextDay) &&
+            /^\d+$/.test(String(dayContext.startedDay || ""))) {
+          mark("day", String(Number(dayContext.startedDay) + 1));
+          dayContext.advanced = true;
+        }
+        mark("time", clock);
+      }
+
+      // Only arrival/entry or an explicit statement of the player's current
+      // physical position can establish a new place. "Toward" is not arrival.
+      arrival = clause.match(new RegExp("\\b" + player + "\\b[^.!?;]{0,30}\\b(?:arriv(?:e|es|ed)\\s+at|reach(?:es|ed)?|enter(?:s|ed)?|step(?:s|ped)?\\s+(?:in(?:to)?|inside)|walk(?:s|ed)?\\s+in(?:to)?|go(?:es|ne)?\\s+inside|return(?:s|ed)?\\s+to)\\s+(?:(?:the|your|my|our|a)\\s+)?([A-Za-z][A-Za-z'’& -]{1,55})", "i"));
+      if (arrival) {
+        target = venueName(arrival[1]);
+        if (/\b(?:toward|towards|near|past|by|from|before|almost)\b/i.test(arrival[1]) || !target) target = "";
+        if (target) side = /\b(?:enter|step|walk|go)/i.test(arrival[0]) ? "Inside" : "Outside";
+      }
+      if (!target && new RegExp("\\b" + player + "\\b[^.!?;]{0,25}\\b(?:step(?:s|ped)?|walk(?:s|ed)?|go(?:es|ne)?|move(?:s|d)?)\\s+inside\\b", "i").test(clause)) {
+        contextVenue = history.match(/\b(?:cottage|house|home|tavern|inn|guildhall|library)\b/gi);
+        target = contextVenue ? contextVenue[contextVenue.length - 1] :
+          (/\b(?:cottage|house|home|tavern|inn|guildhall|library)\b/i.test(ce.scene.area || "") ? venueName(ce.scene.area) : "");
+        side = "Inside";
+      }
+      if (!target && new RegExp("\\b" + player + "\\b[^.!?;]{0,25}\\b(?:step(?:s|ped)?|walk(?:s|ed)?|go(?:es|ne)?|move(?:s|d)?)\\s+outside\\b", "i").test(clause)) {
+        target = venueName(ce.scene.area); side = "Outside";
+      }
+      if (!target) {
+        match = clause.match(new RegExp("\\b" + player + "\\b[^.!?;]{0,25}\\b(?:leave|leaves|left|exit|exits|exited|step(?:s|ped)?\\s+out\\s+of|walk(?:s|ed)?\\s+out\\s+of)\\s+(?:(?:the|your|my)\\s+)?(cottage|house|home|tavern|inn|guildhall|library|market)\\b", "i"));
+        if (match) { target = match[1]; side = "Outside"; }
+      }
+      if (!target && new RegExp("\\b" + player + "\\b[^.!?;]{0,28}\\b(?:walk(?:s|ed)?|travel(?:s|ed)?|move(?:s|d)?|make(?:s|made)?\\s+(?:your|our|my)\\s+way)\\s+(?:along|down|on|onto|through)\\s+(?:the\\s+)?(road|path|street|lane|trail)\\b", "i").test(clause)) {
+        target = clause.match(/\b(road|path|street|lane|trail)\b/i)[1];
+      }
+      if (!target && new RegExp("\\b" + player + "\\b[^.!?;]{0,30}\\b(?:are|am|stand|standing|wait|waiting)\\s+(?:right\\s+)?(outside|inside)\\s+(?:(?:the|your|my)\\s+)?(cottage|house|home|tavern|inn|guildhall|library)\\b", "i").test(clause)) {
+        match = clause.match(/\b(outside|inside)\s+(?:(?:the|your|my)\s+)?(cottage|house|home|tavern|inn|guildhall|library)\b/i);
+        target = match[2]; side = /inside/i.test(match[1]) ? "Inside" : "Outside";
+      }
+      if (!target && /\b(?:your|my)\s+(?:back|body|hand)\s+(?:is|was)\s+pressed\s+against\s+(?:the|your|my)\s+(?:cottage|house|home)\s+door(?:frame)?\b/i.test(clause)) {
+        target = clause.match(/\b(cottage|house|home)\s+door/i)[1]; side = "Outside";
+      }
+      if (!target && /\b(?:cottage|house|home)\s+door\s+(?:swings?|swung|clicks?)\s+(?:shut|closed)\s+behind\s+you\b/i.test(clause)) {
+        target = clause.match(/\b(cottage|house|home)\s+door/i)[1]; side = "Inside";
+      }
+      if (!target && new RegExp("\\b" + player + "\\b[^.!?;]{0,35}\\b(?:unlock|unlocks|unlocked|knock|knocks|knocked|reach|reaches|reached)\\b[^.!?;]{0,35}\\b(?:the|your|my)\\s+(?:(?:cottage|house|home)\\s+)?(?:door|latch)\\b", "i").test(clause)) {
+        contextVenue = clause.match(/\b(cottage|house|home)\b/i) || String(ce.scene.area || "").match(/\b(cottage|house|home)\b/i);
+        if (contextVenue) { target = contextVenue[1]; side = "Outside"; }
+      }
+      if (!target && /\b(?:cottage|house|home)\b[^.!?;]{0,65}\binside\b/i.test(clause) && doorClosed) {
+        target = clause.match(/\b(cottage|house|home)\b/i)[1]; side = "Inside";
+      }
+      if (target && /^(?:road|path|street|lane|trail|track|market|market square|garden|gardens|well)$/i.test(target)) side = "";
+      if (target) placeArea(target, side, clause);
+
+      // A named NPC's explicit action wins over a stale packet or roster.
+      clause.replace(/\b([A-Z][A-Za-z0-9_'’-]{2,30}(?:\s+[A-Z][A-Za-z0-9_'’-]{2,30}){0,2})\s+(?:is\s+standing|stands?|steps?|walks?|follows?|followed|enters?|waits?|remains?|sits?|sat|slides?|slid|joins?|joined|moves?|moved|leaves?|left|keeps?|pauses?|says?|speaks?|asks?|answers?|turns?|watches?|nods?|frowns?|smiles?|adjusts?|glances?|looks?|folds?|crosses?|gestures?|reaches?|leans?)\b/g, function (_, name) {
+        if (!/^(?:The|Then|This|That|You|Your|We|They|His|Her|Behind|There|Player|Cottage|House|Road)$/i.test(name) && normaliseName(name) !== normaliseName(ce.player && ce.player.name)) {
+          if (!labels[normaliseName(name)]) labels[normaliseName(name)] = name;
+        }
+        return _;
+      });
+      Object.keys(labels).sort(function (a, b) { return b.length - a.length; }).forEach(function (variant) {
+        var name = labels[variant], pattern, subject, tail, action = "", latest = -1, next, lead,
+            closeContact;
+        if (!name) return;
+        pattern = new RegExp("(^|[^A-Za-z0-9'])" + escapeRegExp(variant) + "(?=$|[^A-Za-z0-9'])", "i");
+        subject = pattern.exec(clause);
+        if (!subject) return;
+        next = subject.index + subject[0].length;
+        tail = clause.slice(next);
+        lead = clause.slice(Math.max(0, subject.index - 30), subject.index);
+        if (/\b(?:not|never|could|would|might|if|imagined|remembered|said|says|claimed|claims|reported)\b/i.test(lead)) return;
+        closeContact = new RegExp("\\b(?:you|we|I|" + escapeRegExp(ce.player && ce.player.name || "Player") + ")\\b[^.!?;]{0,55}\\b(?:step(?:s|ped)? back from|stand(?:s|ing)? (?:a few paces |a step )?from|stand(?:s|ing)? beside|stand(?:s|ing)? next to|turn(?:s|ed)? to face)\\s+" + escapeRegExp(variant) + "\\b", "i").test(clause) ||
+          new RegExp("\\b" + escapeRegExp(variant) + "\\b[^.!?;]{0,65}\\b(?:grips?|holds?|catches?|releases?|guides?|pulls?|touches?)\\b[^.!?;]{0,50}\\b(?:you|your|my)\\b", "i").test(clause);
+        function actionAt(regex, kind) {
+          var found;
+          regex.lastIndex = 0;
+          while ((found = regex.exec(tail))) {
+            if (found.index >= latest) { latest = found.index; action = kind; }
+            if (!regex.global) break;
+          }
+        }
+        actionAt(/\b(?:leave|leaves|left|exit|exits|exited|depart|departs|departed)\b[^.!?;]{0,80}\b(?:tavern|inn|house|home|cottage|room|scene|venue|town|building|entirely|for the night)\b|\b(?:vanish|vanishes|disappear|disappears)\b/gi, "gone");
+        actionAt(/\b(?:moves?|moved|moving|walks?|walked|walking|steps?|stepped|stepping|crosses?|crossed|crossing|goes?|went|going|retreats?|retreated|retreating)\b[^.!?;]{0,65}\b(?:across the room|far side|the bar|another table|hallway|next room|outside|away from you|out of sight)\b/gi, "nearby");
+        actionAt(/\b(?:joins?|joined|approaches?|approached)\b[^.!?;]{0,50}\b(?:you|your|the party|the group|your table|the table|conversation)\b|\b(?:steps?|stepped)\s+closer\b|\b(?:sits?|sat|slides?|slid|stands?)\b[^.!?;]{0,50}\b(?:beside you|next to you|at your table|by your side)\b|\b(?:follows?|followed)\s+you\b|\b(?:stands?|waits?|remains?)\b[^.!?;]{0,55}\b(?:just beyond arm's reach|at the door|beside you|behind you)\b/gi, "present");
+        actionAt(/\bkeeps?\s+(?:his|her|their)\s+pace\b/gi, "present");
+        actionAt(new RegExp("\\b(?:your|my|" + escapeRegExp(ce.player && ce.player.name || "Player") + "['’]s)\\s+(?:hand|touch)\\b[^.!?;]{0,50}\\b(?:his|her|their)\\s+(?:shoulder|arm|back|hand)\\b", "gi"), "present");
+        actionAt(/\b(?:enters?|entered|arrives?|arrived|steps?\s+in(?:to)?|stepped\s+in(?:to)?|walks?\s+in(?:to)?|walked\s+in(?:to)?)\b[^.!?;]{0,45}\b(?:market|square|tavern|inn|room|house|cottage|hall|garden|road|street|venue)\b|\bis\s+(?:here|beside you|next to you)\b/gi, "present");
+        if (closeContact && latest < 0) action = "present";
+        if (latest < 0 && /\b(?:stands?|waits?|remains?)\b[^.!?;]{0,55}\boutside\s+(?:the|your|my)\s+(?:door|cottage|house|home)\b/i.test(tail)) action = /\binside\b/i.test(ce.scene.area) ? "nearby" : "present";
+        if (latest < 0 && /\boutside\b[^.!?;]{0,70}$/i.test(clause.slice(0, subject.index)) &&
+            /\b(?:remains?|stands?|waits?)\b/i.test(tail) &&
+            /\binside\b/i.test(ce.scene.area) && /\b(?:door|threshold|cottage|house|home)\b/i.test(history)) action = "nearby";
+        if (latest < 0 && /\b(?:is standing there|stands there|is there)\b/i.test(tail) && /\bdoor\b[^.!?;]{0,75}\b(?:open|opened|yanked|from inside)\b/i.test(history)) action = /\binside\b/i.test(ce.scene.area) ? "present" : "nearby";
+        if (!action && /\b(?:door|shutters?|window)\b/i.test(history) &&
+            /\b(?:outside|shouts? back|calls? (?:out|back)|through the door|hasn't moved|has not moved)\b/i.test(history) &&
+            /\b(?:cottage|house|room|inside)\b/i.test(ce.scene.area || "") &&
+            /\b(?:says?|speaks?|asks?|answers?|shouts?|calls?|does(?:n't| not)\s+(?:shout|leave|move))\b/i.test(tail)) action = "nearby";
+        // A model may emit P=none while the story plainly shows the same
+        // actor speaking or moving beside the player. Recover that actor
+        // without promoting somebody already tracked in an adjacent area.
+        if (!action && !(ce.scene.nearby || []).some(function (item) { return normaliseName(item) === normaliseName(name); }) &&
+            (/\b(?:watches?|studies?|looks?\s+at|glances?\s+at|leans?\s+closer|shifts?\s+(?:his|her|their)\s+weight|tilts?\s+(?:his|her|their)\s+head|folds?\s+(?:his|her|their)\s+arms?|crosses?\s+(?:his|her|their)\s+arms?|gestures?\s+(?:to|at|toward)|reaches?\s+(?:for|toward)|does(?:n't| not)\s+(?:flinch|budge|move)|is\s+there|keeps?\s+(?:his|her|their)\s+pace|pauses?|says?|speaks?|asks?|answers?)\b/i.test(tail.slice(0,100)) ||
+             /^['’]s\s+(?:hand|arm|fingers|face|eyes|voice)\b[^.!?;]{0,75}\b(?:against|beside|above|near|on\s+you|at\s+you)\b/i.test(tail))) action = "present";
+        if (action === "present" && priorRoster && (priorRoster.nearby || []).some(function (item) { return normaliseName(item) === normaliseName(name); }) &&
+            !closeContact && !/\b(?:enters?|entered|arrives?|arrived|joins?|joined|approaches?|approached|steps?\s+in|walks?\s+in|beside you|next to you)\b/i.test(tail)) action = "nearby";
+        if (action && /\b(?:not|never|refuses? to|tries? to|attempts? to)\b[^.!?;]{0,30}\b(?:leave|enter|join|follow|walk|step|sit)\b/i.test(tail)) action = "";
+        if (action) putActor(name, action);
+      });
+    });
+    normaliseSceneRoster(ce, false);
+    if (changes.length) ce.lastProseScene = changes.slice(-7).join(", ");
   }
 
   function looksLikeInstructionEcho(segment) {
@@ -1761,14 +2378,55 @@ return lines.join("\n");
     return clean;
   }
 
+  function timelineSpan(source) {
+    // Quoted recollections such as "I spent the last four days..." are not
+    // another passage of time for the player's current scene.
+    var text = String(source || "").replace(/"[^"\n]*"|“[^”\n]*”/g, " ")
+          .replace(/[^.!?;\n]+[.!?;]?/g, function (clause) {
+            return /\b(?:imagines?|imagined|would|could|might|plans?\s+to|planned\s+to|hopes?|hoped|wishes?|wished|dreams?|dreamed|supposes?|supposed|remembers?|remembered|recalls?|recalled|if)\b/i.test(clause) ? " " : clause;
+          }),
+        quantity = "(\\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|few)",
+        patterns = [
+          { kind:"forward", regex:new RegExp("\\b(?:for|over|during|throughout)\\s+(?:the\\s+)?(?:next|following)\\s+" + quantity + "\\s+(days?|weeks?)\\b", "gi") },
+          { kind:"forward", regex:new RegExp("\\b(?:spend|spends|spent|pass|passes|passed|wait|waits|waited|remain|remains|stay|stays)\\s+(?:through\\s+)?(?:the\\s+)?(?:next|following)\\s+" + quantity + "\\s+(days?|weeks?)\\b", "gi") },
+          { kind:"forward", regex:new RegExp("\\bafter\\s+" + quantity + "\\s+(days?|weeks?)\\b", "gi") },
+          { kind:"forward", regex:new RegExp("\\b" + quantity + "\\s+(days?|weeks?)\\s+(?:later|pass(?:ed)?|have\\s+passed|went\\s+by|go\\s+by)\\b", "gi") },
+          { kind:"past", regex:new RegExp("\\b(?:the\\s+)?past\\s+" + quantity + "\\s+(days?|weeks?)\\s+(?:have|has|had|were|was|passed|went)\\b", "gi") }
+        ], best = null;
+    patterns.forEach(function (pattern) {
+      var match;
+      while ((match = pattern.regex.exec(text))) {
+        var token = match[1].toLowerCase(), number = /^\d+$/.test(token) ? Number(token) :
+          {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,few:3}[token],
+            days = number * (/week/i.test(match[2]) ? 7 : 1),
+            candidate = { days:days, kind:pattern.kind, precise:token !== "few" };
+        if (days < 1 || days > 365) continue;
+        // "A few days" and "three days" in one passage describe one span.
+        if (!best || (candidate.precise && !best.precise) ||
+            (candidate.precise === best.precise && candidate.kind === "forward" && best.kind === "past")) best = candidate;
+      }
+    });
+    return best;
+  }
+
   function consume(state, text) {
     var ce = init(state),
-        source = String(text).replace(/\u2063/g, ""),
+        source = String(text == null ? "" : text).replace(/\u2063/g, ""),
         extracted = extractOperation(source),
         operation = extracted ? extracted.operation : null,
         pendingPanel = ce.pendingPanel,
-        consumed = extracted ? extracted.consumed : 0;
+        beforeOutput = pendingPanel ? null : clone(ce),
+        consumed = extracted ? extracted.consumed : 0,
+        priorScene = { area:ce.scene.area, location:ce.scene.location,
+          day:ce.scene.day, time:ce.scene.time,
+          present:(ce.scene.present || []).slice(), nearby:(ce.scene.nearby || []).slice(),
+          roster:uniqueRoster((ce.scene.present || []).concat(ce.scene.nearby || [])) },
+        dayContext;
 
+    if (!pendingPanel) {
+      learnExplicitCharacterTitles(ce, ce.pendingSceneInput);
+      learnExplicitCharacterTitles(ce, source.slice(consumed));
+    }
     if (operation !== null && !pendingPanel) {
       parseOperation(ce, operation);
     } else if (operation === null && !pendingPanel && /^\s*(?:\(\s*)?(?:C[\s_.-]*E\b|[LADTNPCQK]\s*[=:])/i.test(source)) {
@@ -1781,24 +2439,109 @@ return lines.join("\n");
     if (!pendingPanel) {
       clean = scrubEmbeddedOperations(ce, clean);
       clean = scrubInstructionEchoes(ce, clean);
+      // Preserve an established inside/outside detail when a packet only
+      // restates the same building without saying that the player crossed it.
+      if (priorScene.area.indexOf(String(ce.scene.area || "") + " — ") === 0 &&
+          normaliseName(priorScene.location) === normaliseName(ce.scene.location)) ce.scene.area = priorScene.area;
+      var passage = String(ce.pendingSceneInput || "") + " " + clean,
+          explicitNextDay = /\b(?:next|following)\s+(?:morning|day|dawn|evening|night)\b|\b(?:wake|woke|awoke|waking)\b[^.!?]{0,80}\b(?:dawn|morning)\b|\b(?:slept|sleep|spent the night)\b[^.!?]{0,80}\b(?:overnight|until morning|through the night)\b/i.test(passage),
+          inputSpan = timelineSpan(ce.pendingSceneInput), outputSpan = timelineSpan(clean),
+          span = inputSpan || outputSpan,
+          recentSpan = ce.timelineLastJump,
+          duplicateSpan = !!(span && recentSpan && Number(recentSpan.afterDay) === Number(priorScene.day) &&
+            Number(recentSpan.days) === span.days &&
+            (span.kind === "past" || (!inputSpan && Number(ce.turn || 0) - Number(recentSpan.turn || 0) <= 2))),
+          skipCount = span && !duplicateSpan ? span.days : 0,
+          startedAtNight = /\b(?:night|evening|midnight)\b/i.test(priorScene.time || ""),
+          crossingMorning = startedAtNight && /\b(?:dawn|morning)\b/i.test(ce.scene.time || "");
+      dayContext = { startedDay:priorScene.day, startedAtNight:startedAtNight,
+        explicitNextDay:explicitNextDay, advanced:false };
+      if (/^\d+$/.test(String(priorScene.day || "")) && /^\d+$/.test(String(ce.scene.day || ""))) {
+        var priorNumber = Number(priorScene.day), reportedNumber = Number(ce.scene.day),
+            allowedDay = priorNumber + (skipCount || ((crossingMorning || explicitNextDay) ? 1 : 0));
+        // A packet may propose a new date, but the current story must
+        // actually cross a day boundary before it becomes canonical.
+        if (reportedNumber !== allowedDay &&
+            (skipCount || reportedNumber < priorNumber || reportedNumber > allowedDay ||
+             (reportedNumber === priorNumber && allowedDay > priorNumber))) {
+          ce.scene.day = String(allowedDay);
+          ce.sceneInference.day = true;
+        }
+        dayContext.advanced = Number(ce.scene.day) > priorNumber;
+        if (skipCount && dayContext.advanced) ce.timelineLastJump = {
+          afterDay:Number(ce.scene.day), days:skipCount, turn:Number(ce.turn || 0)
+        };
+      }
+      // A new venue leaves the old venue's cast behind. A later model packet
+      // must not silently bring one of them along without a fresh story event.
+      var changedArea = normaliseName(priorScene.area) !== normaliseName(ce.scene.area),
+          adjacentArea = changedArea && sameSceneSite(priorScene.area, ce.scene.area),
+          keptNames = uniqueRoster((ce.scene.present || []).concat(ce.scene.nearby || []));
+      if (adjacentArea) {
+        ce.scene.nearby = uniqueRoster((ce.scene.nearby || []).concat(priorScene.roster.filter(function (name) {
+          return keptNames.map(normaliseName).indexOf(normaliseName(name)) < 0;
+        })));
+        ce.sceneInference.nearby = true;
+      } else if (changedArea) {
+        ce.sceneDisplaced = uniqueRoster((ce.sceneDisplaced || []).concat(priorScene.roster)).slice(-12);
+      } else {
+        ce.scene.present = uniqueRoster((ce.scene.present || []).concat(priorScene.present.filter(function (name) {
+          return keptNames.map(normaliseName).indexOf(normaliseName(name)) < 0;
+        })));
+        ce.scene.nearby = uniqueRoster((ce.scene.nearby || []).concat(priorScene.nearby.filter(function (name) {
+          return keptNames.map(normaliseName).indexOf(normaliseName(name)) < 0;
+        })));
+      }
+      normaliseSceneRoster(ce, false);
       reconcileExplicitDepartures(ce, clean);
-      observeCharacters(ce, clean);
-      syncLore(ce);
+      reconcileProseScene(ce, ce.pendingSceneInput, dayContext, priorScene);
+      reconcileProseScene(ce, clean, dayContext, priorScene);
+      if ((ce.sceneDisplaced || []).length) {
+        var displaced = ce.sceneDisplaced.map(normaliseName);
+        ce.scene.present = (ce.scene.present || []).filter(function (name) { return displaced.indexOf(normaliseName(name)) < 0; });
+        ce.scene.nearby = (ce.scene.nearby || []).filter(function (name) { return displaced.indexOf(normaliseName(name)) < 0; });
+      }
+      ce.pendingSceneInput = "";
     }
 
     if (pendingPanel) {
+      ce.pendingSceneInput = "";
       clean = "\n\n" + (typeof pendingPanel === "string" ? pendingPanel : panel(ce, pendingPanel.kind, pendingPanel.arg));
       ce.pendingPanel = null;
       ce.resumeAfterCommand = true;
       return clean + "\n\n";
     }
 
-    if (clean) {
-      ce.lastNarrative = clean.replace(/\s+/g, " ").slice(-900);
-      ce.resumeAfterCommand = false;
+    if (!clean) {
+      // A CE-only or scrubbed response is a failed story turn. Keep neither
+      // its scene/relationship updates nor its consumed player input.
+      state.ce = beforeOutput;
+      state.ce.lastEmptyOutput = {
+        turn:ce.turn, rawChars:source.length,
+        reason:!source.trim() ? "model returned no text" :
+          (consumed && !source.slice(consumed).trim() ? "model returned only a scene packet" : "narration removed by CK filters")
+      };
+      state.ce.emptyOutputCount = Number(state.ce.emptyOutputCount || 0) + 1;
+      return "The moment passes quietly.";
     }
-
-    return clean || "The moment passes quietly.";
+    var separateFromNotice = ce.needsStorySeparator;
+    ce.needsStorySeparator = false;
+    var relationshipChanges = evolveRelationshipsAfterStory(ce, beforeOutput);
+    observeCharacters(ce, clean);
+    syncLore(ce);
+    ce.lastNarrative = clean.replace(/\s+/g, " ").slice(-900);
+    ce.emptyOutputCount = 0;
+    ce.resumeAfterCommand = false;
+    ce.missingSceneTurns = ce.scenePacketThisTurn ? 0 : Math.min(99, Number(ce.missingSceneTurns || 0) + 1);
+    ce.quietThreadTurns = ce.threadUpdatedThisTurn ? 0 : Math.min(99, Number(ce.quietThreadTurns || 0) + 1);
+    ce.scenePacketThisTurn = false;
+    ce.threadUpdatedThisTurn = false;
+    if (separateFromNotice) clean = "\n\n" + clean;
+    if (relationshipChanges.length) clean += "\n\nCHRONICLE KEEPER — LEDGER\nRelationship status changed:\n" + relationshipChanges.map(function (event) {
+      return "• " + event;
+    }).join("\n") + "\n\n";
+    if (relationshipChanges.length) ce.needsStorySeparator = true;
+    return clean;
   }
 
   return {
