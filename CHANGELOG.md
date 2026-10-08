@@ -2,6 +2,39 @@
 
 All notable changes to Chronicle Keeper are documented in this file.
 
+## [1.5.1] - 2026-10-08
+
+### Added
+
+- Bounded pinned NPC moments, separate from the rolling 360-character summary, in Story Card Notes and model context.
+- `[pin:Name=lasting event]` and `[unpin:Name=event excerpt]` commands for moments players want to retain or correct.
+- Automatic pins for a small number of newly witnessed defining events; existing pins are never automatically evicted.
+
+### Fixed
+
+- Later memory consolidations cannot overwrite pinned moments. Manual edits to managed Notes should be converted to pins because managed text is rebuilt on sync.
+
+## [1.5.0] - 2026-10-08
+
+### Added
+
+- Prose-backed scene reconciliation for explicit place, time and named NPC movement when model scene packets are absent, plus diagnostics for stale fields.
+- Context budgeting and stronger active-thread progression cues as story history grows, with a recovery cue after unusable output.
+- Automatic relationship status evolution after story-backed score changes, with a visible status-change notice. `relationshipEvolution: false` keeps labels under manual control; family stays fixed.
+- Read-only `[gate:Name]` command showing the closest reachable relationship gate, remaining score requirements and recent direction.
+- Distinct durable NPC notes and queued long-term consolidation; managed summaries and recent notes are written to Story Card Notes.
+
+### Fixed
+
+- Automatic title learning no longer interprets an ordinary lowercase noun in phrases such as “Xander, the smell of rain” as the alias “The smell.”
+- A note consolidated in the same model packet is not immediately re-added as a recent note.
+- Character Details remain creator-authored apart from the labelled managed profile; managed memory no longer consumes the Details entry's character limit.
+
+### Preserved
+
+- Neutral Quick Start creator examples, placeholder matching, creator canon, Character card protections and separate Input, Context and Output modifiers.
+- The earlier explicit departure fallback and command isolation.
+
 ## [1.4.8] - 2026-09-04
 
 ### Added
@@ -95,4 +128,5 @@ All notable changes to Chronicle Keeper are documented in this file.
 - Creator-defined NPCs, threads and truths remain protected during migration.
 - Existing adventure state is migrated when a compatible newer engine is loaded.
 - Scenario-specific editions may contain their own setup content, but the shared engine should remain identical to the neutral release of the same version.
+
 
