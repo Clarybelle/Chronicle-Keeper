@@ -1,7 +1,7 @@
 ![Chronicle Keeper](assets/Chronicle-keeper-banner.png)
 
 
-📜 CHRONICLE KEEPER V1.4.8 📜 <br>
+📜 CHRONICLE KEEPER V1.5.1 📜 <br>
 AI DUNGEON CONTINUITY, LORE, MEMORY AND RELATIONSHIP ENGINE
 =
 Chronicle Keeper is a free, reusable, open-source JavaScript continuity and memory system for AI Dungeon creators.
@@ -93,7 +93,8 @@ OUTPUT MODIFIER
 Consumes the private CE operation produced by the model, applies legitimate
 updates, removes the operation from the visible output and returns the story.
 It also removes leaked instruction fragments and performs conservative scene
-departure reconciliation when a named NPC explicitly leaves the venue.
+departure reconciliation when a named NPC explicitly leaves the venue. It can
+also use direct story prose to correct the scene when a model packet is absent.
 
 
 ==================================================================================== 
@@ -109,7 +110,7 @@ Only edit the CE_SETUP block above ENGINE START.
 continuityMode: "silent" <br>
 world: "living"
 
-These fields are retained for compatibility and future expansion. In V1.4.8,
+These fields are retained for compatibility and future expansion. In V1.5.0,
 changing them does not materially change engine behaviour.
 
 relationshipPacing: "natural"
@@ -122,6 +123,13 @@ Controls the maximum relationship movement permitted in one update:
 
 Relationship changes still require story evidence. Routine presence alone
 does not increase affection, trust or attraction.
+
+relationshipEvolution: true
+
+When enabled, a relationship label can change after an accepted story-backed
+score update reaches a preset gate. It can improve or deteriorate; family is
+fixed. Set this to false to keep labels under manual control. Use [gate:Name]
+to see the closest next gate and recent score direction.
 
 contextBudget: 5500
 
@@ -154,7 +162,13 @@ Minimum delay between automatic summaries for the same NPC. Allowed range:
 1 to 20 turns. Default: 3.
 
 Only verified, durable developments should become notes. Ordinary positioning,
-small talk and routine presence are deliberately excluded.
+small talk and routine presence are deliberately excluded. The rolling summary
+is capped at 360 **characters** by default, not 360 words. Separately pinned
+moments survive subsequent summaries and appear in Character Story Card Notes.
+Up to six moments of 180 characters each are retained per NPC; at most two
+automatic moments may be added from major turning points. Automatic moments
+never displace existing pins. A player pin can make room by replacing an
+automatic moment, but never another player pin. Use [unpin] to correct a pin.
 
 
 > **3.3 THREAD TRACKING SETTINGS**
@@ -226,9 +240,10 @@ ignored. Placeholder titles containing { or }, common player-card titles and
 the resolved player's name are also excluded from NPC adoption.
 
 Chronicle Keeper modifies only its labelled managed profile and memory blocks.
-Creator-written card content and safe player notes are preserved. The AI
-Dungeon Story Card entry limit is 1000 characters, so very full cards may use
-a compact managed profile.
+Creator-written card content and safe player notes are preserved. The managed
+long-term summary and recent developments go into the card's Notes field;
+the Details entry has a separate 1000-character limit and may use a compact
+managed profile when full.
 
 
 > **3.5 PLAYER NAME AND PLACEHOLDERS**
@@ -286,11 +301,15 @@ Full names of NPCs close enough to matter but not directly present.
 An NPC cannot remain in both lists. Chronicle Keeper makes the rosters
 disjoint and removes the resolved player automatically.
 
-V1.4.8 also reconciles explicit departures from visible narration. When a
+V1.5.0 also reconciles explicit departures from visible narration. When a
 named rostered NPC clearly leaves the current venue or disappears into another
 district, the engine removes them from both lists even if the model mistakenly
 keeps them in its private roster. Attempted, interrupted or negated departures
 do not remove the NPC.
+
+[where] also uses direct prose evidence of movement, time and named NPC
+proximity when the model omits a scene packet. It may take another turn or two
+for a less explicit change; ambiguous descriptions are left unchanged.
 
 
 > **3.7 CREATOR NPCS**
@@ -384,6 +403,12 @@ relationshipOverride: {
 Tracked axes are familiarity, trust, affection, respect, attraction and
 resentment. Values are clamped between 0 and 100.
 
+With relationshipEvolution enabled, preset labels follow earned score changes
+through the gates. A status change appears in the story ledger. Use [gate:Name]
+to see the nearest gate, what is still needed and whether the last five
+score-changing turns moved toward or away from it. The command does not alter
+the relationship or guarantee which status the story will reach.
+
 
 > **3.9 CREATOR THREADS**
 
@@ -440,12 +465,13 @@ actually provides evidence.
 
 
 Use one command by itself. After Chronicle Keeper displays the result, press
-Continue to resume the story. V1.4.8 prevents the command turn and its panel
+Continue to resume the story. V1.5.0 prevents the command turn and its panel
 from being treated as narrative.
 
 [where]
 Shows current location, area, day, time, resolved player name, present NPCs and
-nearby NPCs.
+nearby NPCs. If model scene packets are missing, it may indicate stale fields
+and identify fields derived directly from story prose.
 
 [threads]
 Lists tracked plot threads, their statuses and current developments.
@@ -461,10 +487,26 @@ threshold and queued memory information.
 Shows the NPC's relationship preset, aliases and six numeric relationship
 scores. A unique established alias may also be used.
 
+[gate:Full Character Name]
+Shows the closest reachable relationship gate, its remaining score requirements
+and recent direction. It inspects the ledger without changing scores or status.
+
 [memory:Full Character Name]
-Shows the NPC's consolidated long-term summary, recent durable developments,
+Shows the NPC's rolling long-term summary, pinned moments, recent durable developments,
 automatic threshold and summary count. This command inspects memory; it does
 not force a new summary.
+
+[pin:Full Character Name=lasting event]
+Preserves a specific established moment across future summary updates. Example:
+[pin:Xander=Clary and Xander spoke openly about their fears for twenty turns and promised not to use that vulnerability against each other]
+Use the command by itself. The moment must already be established in the story;
+this command does not generate or verify a past scene. It is shown in Story
+Card Notes and included in relevant NPC context.
+
+[unpin:Full Character Name=event excerpt]
+Removes one pinned moment using a distinctive excerpt. If it matches more than
+one, use more of the event text. Edit a pin by unpinning and pinning a revised
+version.
 
 [alias:Full Character Name=Nickname]
 Adds a safe alias to an already tracked NPC. Unsafe, ambiguous or duplicate
@@ -513,8 +555,10 @@ will appear in a panel on the immediately following turn.
 
 Typical behaviour:
 
-- Explicit scene movement should update immediately.
-- V1.4.8 explicit-departure reconciliation removes a clearly departing named
+- Clear scene movement can update on the same turn.
+- V1.5.0 prose reconciliation can update place, time and NPC proximity without
+  a model scene packet; less explicit evidence may need another turn or two.
+- Explicit-departure reconciliation removes a clearly departing named
   NPC immediately, even if the private roster is stale.
 - An emergent NPC normally requires meaningful detection on two distinct turns
   before a Story Card is created.
@@ -523,6 +567,8 @@ Typical behaviour:
 - [track:Thread Name] adds a thread immediately when the player does not want
   to wait for automatic confirmation.
 - Relationship movement is deliberately gradual and evidence-based.
+- An earned status change is announced in the story ledger. [gate:Name]
+  provides a read-only view of the next threshold and recent movement.
 - Automatic long-term memory begins after the configured note threshold and
   may complete on a later generation when the model returns the requested
   consolidated summary.
@@ -538,7 +584,8 @@ Typical behaviour:
 - Placeholder and common player/template card titles are excluded.
 - Add unusual player-card titles to lore.ignoreCardTitles.
 - Chronicle Keeper's Player Commands card uses the Other type.
-- Managed profile and memory sections are labelled.
+- Managed profile and memory sections are labelled; long-term NPC memory and
+  recent developments belong in the card's Notes field.
 - Keep personal additions beneath the safe-to-edit notes heading.
 - Do not remove or manually duplicate Chronicle Keeper's management markers.
 - Character-card entries are capped at AI Dungeon's 1000-character limit.
@@ -570,7 +617,7 @@ is required.
 
 AN NPC REMAINS PRESENT OR NEARBY AFTER LEAVING
 
-Use V1.4.8 or later. Clearly state the named NPC leaves the current venue. The
+Use V1.5.0 or later. Clearly state the named NPC leaves the current venue. The
 departure fallback recognises explicit completed movement, but deliberately
 ignores attempts, uncertainty and interrupted departures.
 
@@ -591,16 +638,15 @@ TOO MANY THREADS APPEAR
 
 A COMMAND PRODUCES A DOT OR AFFECTS THE NEXT CONTINUE
 
-Use V1.4.8 and enter the command by itself. Wait for its Chronicle Keeper panel,
+Use V1.5.1 and enter the command by itself. Wait for its Chronicle Keeper panel,
 then press Continue. The invisible command marker and resume protection prevent
 the administrative turn from becoming story prose.
 
-PRIVATE CE SCRIPTING APPEARS IN THE STORY
+IF PRIVATE CE SCRIPTING APPEARS IN THE STORY
 
-V1.4.8 scrubs complete, displaced, fragmented, malformed and unclosed CE
+V1.5.1 scrubs complete, displaced, fragmented, malformed and unclosed CE
 operations plus known instruction echoes. If a selected model produces a new
-leak format, erase or retry that output and record the exact leaked text so the
-scrubber can be extended safely.
+leak format, erase or retry that output. If issues persistent, notify Clarybelle via her Chronicle Keeper Update thread in AI Dungeon. 
 
 A STORY CARD DOES NOT UPDATE
 
@@ -608,17 +654,17 @@ A STORY CARD DOES NOT UPDATE
 - Confirm lore.enabled is true.
 - Check [lore] for linked and eligible totals.
 - Confirm the title matches the tracked NPC's full name.
-- Very full cards may receive a compact profile because entries are limited to
-  1000 characters.
-- [memory:Name] shows ledger memory even when a card has no room to display the
-  full managed section.
+- Very full Details entries may receive a compact profile because entries are
+  limited to 1000 characters. The managed memory belongs in Notes.
+- [memory:Name] shows the rolling summary, protected pins, recent notes and queue state.
+- Edits inside [CK LONG-TERM MEMORY — MANAGED] are replaced on sync. Use [pin] for a lasting moment or write separate player notes outside the managed block.
 
 
 ====================================================================================
 > **8. UPGRADING**
 
 
-To upgrade an existing scenario or adventure:
+To upgrade a scenario template:
 
 1. Make a backup of the current Library script.
 2. Replace the complete old Library script with the new version.
@@ -629,26 +675,28 @@ To upgrade an existing scenario or adventure:
 6. Run [where], [threads], [lore] and [state] to check migrated state.
 7. Continue the story and confirm the visible output contains no CE metadata.
 
-Chronicle Keeper migrates an existing state.ce structure during initialisation.
-Creator setup changes do not necessarily erase story developments already
-recorded in the adventure state.
+Test the updated scenario in a new adventure. Existing adventures may continue
+using a snapshot of their original scripts, depending on AI Dungeon's script
+handling. Where the new script does run against an existing adventure,
+Chronicle Keeper migrates its state.ce structure during initialisation;
+creator setup changes do not necessarily erase developments already recorded.
 
 
 ====================================================================================
 > **9. PRIVACY AND PUBLIC DISTRIBUTION**
 
 
-Chronicle Keeper V1.4.8 makes no external network requests. Its continuity
+Chronicle Keeper V1.5.1 makes no external network requests. Its continuity
 state is stored in the AI Dungeon adventure state and, when enabled, reflected
 in Story Cards available to the scenario or adventure.
 
 Public filenames:
 
-- Chronicle_Keeper_Library.js
-- Chronicle_Keeper_Context.js
-- Chronicle_Keeper_Input.js
-- Chronicle_Keeper_Output.js
-- README.md
+- Chronicle_Keeper_Library_V1.5.1.js
+- Chronicle_Keeper_ContextV1.5.1.js
+- Chronicle_Keeper_InputV1.5.1.js
+- Chronicle_Keeper_OutputV1.5.1.js
+- READMEV1.5.1.md
 - CHANGELOG.md
 - LICENSE
 
@@ -671,27 +719,33 @@ Suggested public credit:
 "Based on Chronicle Keeper by Clarybelle. Modified by [your name or username]."
 
 ====================================================================================
-> **10. V1.4.8 RELEASE NOTES**
+> **10. V1.5.1 RELEASE NOTES**
+
+- Pinned NPC moments persist independently of the rolling 360 character memory
+  summary/ update and are saved through further automatic consolidation.
+- [pin:Name=event] and [unpin:Name=excerpt] manage protected moments; major
+  newly witnessed turning points can be pinned automatically within a small cap.
+- [memory:Name], Story Card Notes and context show the pinned moments.
+- V1.5.0 scene, relationship, thread, card and prose behavior is retained.
+
+> **10.1 V1.5.0 RELEASE NOTES**
 
 
-- Added conservative explicit NPC departure reconciliation.
-- A named NPC clearly leaving the venue is removed from both present and
-  nearby even when the model returns a stale private roster.
-- Negated, attempted and interrupted departures do not eject the NPC.
-- Expanded metadata protection to scrub displaced or unclosed CE operations.
-- Preserved command-to-Continue isolation and dot prevention.
-- Preserved placeholder resolution for arbitrary scenario prompt wording.
-- Preserved automatic Story Card memory updates and managed card protections.
-- Preserved conservative emergent thread confirmation and storage limits.
-- Regression-tested commands, placeholders, thread merging, relationships,
-  long-term memory, Story Cards, scene movement and leak scrubbing.
+- Prose-backed [where] updates for movement, time and NPC proximity,
+  with stale scene diagnostics when scene packets are missing.
+- Harder active thread progression cues as stories grow, with capped context
+  on smaller models (Dynamic Small) and a recovery cue after empty output.
+- Relationship label evolution and status change notices (Enemy > Rival or Stranger > Rival automatic updates with scripted announcement).
+- New read-only [gate:Name] command for the nearest relationship change gate and recent direction (Moving away from that label or towards it).
+- Character memory summaries and pending developments in Story Card Notes while creator-written Details remain intact.
+- Proper name guard for automatic title aliases, preventing ordinary phrases such as “the smell of rain” from becoming character aliases (Test playing gave my character the random alias of 'The Smell' before this minor fix.. I laughed way too hard).
 
 
 ====================================================================================
 > **11. QUICK START CHECKLIST**
 
 
-- Paste the neutral V1.4.8 engine into Library.
+- Paste the neutral V1.5.1 engine into Library.
 - Paste the Context modifier into Context.
 - Paste the Input modifier into Input.
 - Paste the Output modifier into Output.
@@ -701,11 +755,14 @@ Suggested public credit:
 - Add important creator NPCs, threads and protected truths.
 - Add unusual player-card titles to ignoreCardTitles.
 - Start a test adventure.
-- Run [where], [threads], [lore], [state] and [help].
+- Run [where], [threads], [lore], [state], [gate:Name] and [help].
 - Test one NPC arrival and completed departure.
 - Test one relationship development.
 - Test one automatic or manually tracked thread.
 - Press Continue after a command and confirm normal story resumes.
 - Confirm no private CE operation appears in visible output.
 
+⚔️ **Happy Hunting** ⚔️
+
 ![Chronicle Keeper Footer](assets/Chronicle-keeper-footer.png)
+
