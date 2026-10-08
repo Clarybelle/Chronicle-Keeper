@@ -1,4 +1,6 @@
-
+![Chronicle Keeper](assets/Chronicle-keeper-banner.png)
+  
+  CHRONICLE KEEPER V1.5.1 <br>
   QUICK PLAY STARTER SECTION
 =
 
@@ -20,6 +22,11 @@ This is the starter scene of the scenario, it is the very **first** lcoation tha
   **time:** Example: "Morning" or "Evening".<br>
   **present:** Full names of NPCs directly in the current scene. This can include the placeholder of any custom NPC's you let your player create on start up. ie: ${Ally's full name?} <br>
   **nearby:** Full names of NPCs nearby but not directly present.<br>
+
+These fields set the **starting** scene. During play, `[where]` can update from
+explicit story prose as well as model scene packets. A less clear move or NPC
+departure may take another turn or two; the starting values are not a route
+the story must follow.
 
   **Example Starting Scene**
 
@@ -52,7 +59,7 @@ This is the starter scene of the scenario, it is the very **first** lcoation tha
 
   **Example NPC Block Below**
 
-    npc: [
+    npcs: [
       {
         name: "Allyra Windwalker",
         namePlaceholder: "${Ally's full name?}",
@@ -71,6 +78,11 @@ This is the starter scene of the scenario, it is the very **first** lcoation tha
  **RELATIONSHIP OPTIONS EXPLAINED**
 
    **Presets:** stranger, acquaintance, friend, close_friend, rival, enemy, hated_enemy, family, mentor, friends_with_benefits, lover, romantic_partner <br>
+
+   Set `relationshipEvolution: true` in general settings to let the label
+   change when story-backed score updates meet a preset gate. It can improve
+   or worsen. `family` stays fixed. Use `[gate:Full Character Name]` to inspect
+   the nearest threshold and recent direction without changing the scores.
 
    **Optional tone:** warm, close, neutral, strained, hostile <br>
    **Optional overrides** This can be any stat and value. You can paste this line into the NPC block between relationshipTone and knows for higher customisation if my presets don't suit your scenario needs. The indent doesn't matter, but the commas and brackets do. <br>
@@ -138,6 +150,10 @@ Try to keep these factual as non variables to the scenario
    - Memory commands: [memory:Full Character Name] and [summarise:Full Character Name]
    - Inspection command: [lore]
 
+The managed long-term summary and recent developments are written to the
+Character card's **Notes** field. Creator-written Details and notes outside
+the managed block are preserved.
+
 **PLAYER COMMANDS**
 
 **Help**
@@ -159,10 +175,23 @@ Show the story cards and memory status
 - [relationships:Full Character Name] <br>
 Show the current stats for an NPC's relationship with the player
 
-- [memory:Full Character Name] <br>
-Show a summary of the NPC's current memories 
+- [gate:Full Character Name] <br>
+Show the closest reachable relationship status gate, the score changes still
+needed and whether recent changes moved toward or away from it. This command
+only inspects the relationship; it does not push the scores.
 
-**Manage** 
+- [memory:Full Character Name] <br>
+Show the rolling summary, pinned moments and recent notes for an NPC 
+
+**Manage**
+- [pin:Full Character Name=lasting event] <br>
+Preserve an established major moment across future memory summaries (up to six
+per NPC). Example: [pin:Xander=Clary and Xander shared their fears and made a
+promise they both remember]. Use this command on its own.
+- [unpin:Full Character Name=distinctive event excerpt] <br>
+Remove a pinned moment so you can correct or replace it. Edits inside the
+CK-managed Story Card Notes section are overwritten; use [pin] instead.
+ 
 - [alias:Full Character Name=Nickname] <br> 
 Add a nickname to a character
 - [relationship:Full Character Name=preset] <br> 
@@ -178,3 +207,5 @@ Make a thread dormant (Inactive)
 
 - [summarise:Full Character Name] OR [summarize:Full Character Name] <br> 
 Manually push an update for the NPC's memory and have it summarised for the player 
+
+![Chronicle Keeper Footer](assets/Chronicle-keeper-footer.png)
